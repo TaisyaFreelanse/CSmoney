@@ -1,0 +1,7 @@
+.DS_Store
+Thumbs.db
+
+# локальные env
+web/.env
+web/.env.local
+web/.env.*.local

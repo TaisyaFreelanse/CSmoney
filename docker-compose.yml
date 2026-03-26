@@ -1,0 +1,20 @@
+# Локальная PostgreSQL для разработки (по желанию).
+# Запуск: docker compose up -d
+# Строка для web/.env:
+# DATABASE_URL="postgresql://csmoney:csmoney@localhost:5432/csmoney"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: csmoney
+      POSTGRES_PASSWORD: csmoney
+      POSTGRES_DB: csmoney
+    volumes:
+      - csmoney_pgdata:/var/lib/postgresql/data
+
+volumes:
+  csmoney_pgdata:

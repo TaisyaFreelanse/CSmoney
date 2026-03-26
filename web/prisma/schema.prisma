@@ -1,0 +1,61 @@
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TradeStatus {
+  pending
+  accepted_by_admin
+  completed
+  cancelled
+}
+
+enum TradeItemSide {
+  owner
+  guest
+}
+
+model User {
+  id          String   @id @default(cuid())
+  steamId     String   @unique
+  displayName String?
+  avatarUrl   String?
+  isAdmin     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tradesCreated Trade[] @relation("TradeCreator")
+}
+
+model Trade {
+  id             String      @id @default(cuid())
+  creatorSteamId String
+  creator        User        @relation("TradeCreator", fields: [creatorSteamId], references: [steamId], onDelete: Restrict)
+  status         TradeStatus @default(pending)
+  notes          String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  items TradeItem[]
+}
+
+model TradeItem {
+  id             String        @id @default(cuid())
+  tradeId        String
+  trade          Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  side           TradeItemSide
+  marketHashName String?
+  assetId        String?
+  classId        String?
+  instanceId     String?
+  wear           String?
+  priceUsd       Decimal?      @db.Decimal(14, 4)
+  quantity       Int           @default(1)
+  createdAt      DateTime      @default(now())
+}
