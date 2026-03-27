@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { steamIdsGrantedAdminFromEnv } from "@/lib/admin-bootstrap";
 import { prisma } from "@/lib/prisma";
 import { fetchSteamPlayerSummary } from "@/lib/steam-profile";
 import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/session";
@@ -37,6 +38,13 @@ export async function GET(request: NextRequest) {
       lastLoginAt: now,
     },
   });
+
+  if (steamIdsGrantedAdminFromEnv().has(steamId)) {
+    await prisma.user.update({
+      where: { steamId },
+      data: { isAdmin: true },
+    });
+  }
 
   let token: string;
   try {
