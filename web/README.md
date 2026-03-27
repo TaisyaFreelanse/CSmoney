@@ -18,7 +18,7 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## Environment
 
-Copy `.env.example` to `.env` and set at least `DATABASE_URL` and `SESSION_SECRET` (≥16 characters). For production (Steam OpenID `return_to`), set `NEXT_PUBLIC_APP_URL` to your public site URL without a trailing slash. Optionally set `STEAM_WEB_API_KEY` to fill display name and avatar on login.
+Copy `.env.example` to `.env` and set at least `DATABASE_URL` and `SESSION_SECRET` (≥16 characters). For production (Steam OpenID `return_to`), set `NEXT_PUBLIC_APP_URL` to your real public URL (e.g. `https://cheztrading.com`) with no trailing slash. **Never set `NEXT_PUBLIC_APP_URL` to `localhost` on Render** — Steam will redirect users to their own machine and login will fail. If you remove a bad value, the app can fall back to proxy headers and `RENDER_EXTERNAL_URL`. Optionally set `STEAM_WEB_API_KEY` to fill display name and avatar on login.
 
 Run migrations: `npx prisma migrate dev` (or `migrate deploy` in CI/production).
 

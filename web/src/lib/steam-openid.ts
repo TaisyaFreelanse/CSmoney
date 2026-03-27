@@ -2,11 +2,48 @@ import type { NextRequest } from "next/server";
 
 const STEAM_OPENID = "https://steamcommunity.com/openid/login";
 
-/** Build absolute URL for OpenID return_to / realm from incoming request. */
-export function steamOpenIdOrigin(request: NextRequest): string {
-  const env = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  if (env) return env;
+function isLocalhostOrigin(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname === "localhost" || u.hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+function originFromForwardedHeaders(request: NextRequest): string | null {
+  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const proto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  if (!host) return null;
+  const p = proto === "http" || proto === "https" ? proto : "https";
+  return `${p}://${host}`;
+}
+
+/**
+ * Публичный origin сайта (Steam return_to, редиректы после входа).
+ * В production не использует NEXT_PUBLIC_APP_URL, если там localhost — типичная ошибка на Render.
+ */
+export function publicSiteOrigin(request: NextRequest): string {
+  const envUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  const renderUrl = process.env.RENDER_EXTERNAL_URL?.replace(/\/$/, "");
+  const forwarded = originFromForwardedHeaders(request);
+
+  if (process.env.NODE_ENV === "production") {
+    if (envUrl && !isLocalhostOrigin(envUrl)) return envUrl;
+    if (forwarded) return forwarded;
+    if (renderUrl) return renderUrl;
+  } else {
+    if (envUrl) return envUrl;
+    if (forwarded) return forwarded;
+    if (renderUrl) return renderUrl;
+  }
+
   return new URL(request.url).origin;
+}
+
+/** Alias для OpenID realm / return_to. */
+export function steamOpenIdOrigin(request: NextRequest): string {
+  return publicSiteOrigin(request);
 }
 
 export function steamLoginRedirectUrl(request: NextRequest): string {

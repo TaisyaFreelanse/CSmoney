@@ -3,10 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchSteamPlayerSummary } from "@/lib/steam-profile";
 import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/session";
-import { verifySteamAssertion } from "@/lib/steam-openid";
+import { publicSiteOrigin, verifySteamAssertion } from "@/lib/steam-openid";
 
 export async function GET(request: NextRequest) {
-  const base = new URL(request.url).origin;
+  const base = publicSiteOrigin(request);
 
   const assertion = await verifySteamAssertion(request);
   if ("error" in assertion) {

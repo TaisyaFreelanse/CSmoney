@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { publicSiteOrigin } from "@/lib/steam-openid";
 
 export async function POST(request: NextRequest) {
-  const base = new URL(request.url).origin;
+  const base = publicSiteOrigin(request);
   const res = NextResponse.redirect(new URL("/", base), 303);
   res.cookies.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
