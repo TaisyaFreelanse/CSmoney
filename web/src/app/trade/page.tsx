@@ -303,7 +303,7 @@ export default function TradePage() {
               </a>
             </div>
           ) : !hasTradeUrl || editingTradeUrl ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+            <div className="flex flex-col items-center gap-4 p-6 pt-10">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-600/20 text-3xl">🔗</div>
               <h3 className="text-base font-bold text-zinc-100">
                 {hasTradeUrl ? "Обновите trade-ссылку" : "Вставьте вашу trade-ссылку"}
@@ -675,12 +675,12 @@ function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelec
 
         {/* Stickers */}
         {item.stickers.length > 0 && (
-          <div className="absolute bottom-0 left-1 flex gap-0.5">
-            {item.stickers.slice(0, 4).map((s, i) => (
+          <div className="absolute bottom-0 left-1 flex gap-0.5" title={item.stickers.map((s) => s.name).join(", ")}>
+            {item.stickers.slice(0, 5).map((s, i) => (
               /* eslint-disable-next-line @next/next/no-img-element */
-              <img key={i} src={s.iconUrl} alt={s.name} title={s.name} className="h-4 w-4 rounded-sm drop-shadow" loading="lazy" />
+              <img key={i} src={s.iconUrl} alt={s.name} className="h-[18px] w-[18px] rounded-sm drop-shadow" loading="lazy" />
             ))}
-            {item.stickers.length > 4 && <span className="text-[8px] text-zinc-500">+{item.stickers.length - 4}</span>}
+            {item.stickers.length > 5 && <span className="text-[8px] text-zinc-500">+{item.stickers.length - 5}</span>}
           </div>
         )}
       </div>

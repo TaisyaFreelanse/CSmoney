@@ -105,8 +105,6 @@ function detectPhase(
 // Sticker extraction
 // ---------------------------------------------------------------------------
 
-const STICKER_RE = /src="(https?:\/\/[^"]+)"[^>]*><br>\s*([^<]+)/g;
-
 function extractStickers(
   descriptions: Array<{ value?: string }> | undefined,
 ): SteamStickerInfo[] {
@@ -114,10 +112,23 @@ function extractStickers(
   const stickers: SteamStickerInfo[] = [];
   for (const d of descriptions) {
     if (!d.value?.includes("sticker_info")) continue;
+    const html = d.value;
+
+    const re = /<img[^>]+src="([^"]+)"[^>]*>\s*(?:<br\s*\/?\s*>)\s*([^<]+)/gi;
     let match: RegExpExecArray | null;
-    STICKER_RE.lastIndex = 0;
-    while ((match = STICKER_RE.exec(d.value)) !== null) {
-      stickers.push({ iconUrl: match[1], name: match[2].trim() });
+    while ((match = re.exec(html)) !== null) {
+      const url = match[1];
+      const name = match[2].trim();
+      if (url && name) stickers.push({ iconUrl: url, name });
+    }
+
+    if (stickers.length === 0) {
+      const altRe = /<img[^>]+src="([^"]+)"[^>]*alt="([^"]*)"[^>]*>/gi;
+      while ((match = altRe.exec(html)) !== null) {
+        const url = match[1];
+        const alt = match[2].replace(/^Sticker\s*\|\s*/i, "").trim();
+        if (url && alt) stickers.push({ iconUrl: url, name: alt });
+      }
     }
   }
   return stickers;
