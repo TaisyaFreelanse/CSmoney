@@ -294,68 +294,66 @@ export default function TradePage() {
           />
 
           {/* Content */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            {!isLoggedIn ? (
-              <div className="flex h-full min-h-[300px] flex-col items-center justify-center gap-4 p-8 text-center">
-                <div className="text-5xl opacity-20">🎮</div>
-                <p className="text-sm text-zinc-500">Войдите через Steam, чтобы начать обменивать ваши CS2 скины на нашей платформе.</p>
-                <a href="/api/auth/steam" className="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
-                  Войти через Steam
-                </a>
-              </div>
-            ) : !hasTradeUrl || editingTradeUrl ? (
-              <div className="flex h-full min-h-[350px] flex-col items-center justify-center gap-4 p-6">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-600/20 text-3xl">🔗</div>
-                <h3 className="text-base font-bold text-zinc-100">
-                  {hasTradeUrl ? "Обновите trade-ссылку" : "Вставьте вашу trade-ссылку"}
-                </h3>
-                <p className="max-w-xs text-center text-xs text-zinc-500">
-                  Для загрузки вашего инвентаря нужна ваша trade-ссылка Steam. Можно вставить <strong className="text-zinc-400">только свою</strong> ссылку.
-                </p>
-                <div className="flex w-full max-w-sm flex-col gap-2">
-                  <input
-                    type="text"
-                    placeholder="https://steamcommunity.com/tradeoffer/new/?partner=...&token=..."
-                    className="w-full rounded-lg border-2 border-amber-600/40 bg-zinc-800/80 px-3 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
-                    value={tradeUrl}
-                    onChange={(e) => setTradeUrl(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={saveTradeUrl} className="flex-1 rounded-lg bg-amber-600 py-2.5 text-xs font-bold text-white hover:bg-amber-500 transition-colors">
-                      Сохранить и загрузить инвентарь
-                    </button>
-                    {hasTradeUrl && (
-                      <button onClick={() => setEditingTradeUrl(false)} className="rounded-lg border border-zinc-700 px-4 py-2.5 text-xs text-zinc-400 hover:text-zinc-200">
-                        Отмена
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <a
-                  href="https://steamcommunity.com/my/tradeoffers/privacy#trade_offer_access_url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-amber-500/70 hover:text-amber-400 hover:underline"
-                >
-                  Где найти trade-ссылку? →
-                </a>
-              </div>
-            ) : (
-              <>
-                <PanelHeader
-                  search={mySearch} onSearch={setMySearch}
-                  sort={mySort} onSort={setMySort}
-                  prefix="my"
-                  onRefresh={() => doRefresh("my", setMyRefreshing, setMyCooldown, loadMyInventory)}
-                  refreshing={myRefreshing} cooldown={myCooldown}
-                  tradeUrlAction={() => setEditingTradeUrl(true)}
+          {!isLoggedIn ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+              <div className="text-5xl opacity-20">🎮</div>
+              <p className="text-sm text-zinc-500">Войдите через Steam, чтобы начать обменивать ваши CS2 скины на нашей платформе.</p>
+              <a href="/api/auth/steam" className="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
+                Войти через Steam
+              </a>
+            </div>
+          ) : !hasTradeUrl || editingTradeUrl ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-600/20 text-3xl">🔗</div>
+              <h3 className="text-base font-bold text-zinc-100">
+                {hasTradeUrl ? "Обновите trade-ссылку" : "Вставьте вашу trade-ссылку"}
+              </h3>
+              <p className="max-w-xs text-center text-xs text-zinc-500">
+                Для загрузки вашего инвентаря нужна ваша trade-ссылка Steam. Можно вставить <strong className="text-zinc-400">только свою</strong> ссылку.
+              </p>
+              <div className="flex w-full max-w-sm flex-col gap-2">
+                <input
+                  type="text"
+                  placeholder="https://steamcommunity.com/tradeoffer/new/?partner=...&token=..."
+                  className="w-full rounded-lg border-2 border-amber-600/40 bg-zinc-800/80 px-3 py-2.5 text-xs text-zinc-100 placeholder-zinc-600 focus:border-amber-500 focus:outline-none"
+                  value={tradeUrl}
+                  onChange={(e) => setTradeUrl(e.target.value)}
                 />
-                <div className="flex-1 overflow-y-auto p-2">
-                  <ItemGrid items={filterMy(myItems, mySearch, mySort)} side="guest" selected={selectedMy} onToggle={(id) => toggle(setSelectedMy, id)} />
+                <div className="flex gap-2">
+                  <button onClick={saveTradeUrl} className="flex-1 rounded-lg bg-amber-600 py-2.5 text-xs font-bold text-white hover:bg-amber-500 transition-colors">
+                    Сохранить и загрузить инвентарь
+                  </button>
+                  {hasTradeUrl && (
+                    <button onClick={() => setEditingTradeUrl(false)} className="rounded-lg border border-zinc-700 px-4 py-2.5 text-xs text-zinc-400 hover:text-zinc-200">
+                      Отмена
+                    </button>
+                  )}
                 </div>
-              </>
-            )}
-          </div>
+              </div>
+              <a
+                href="https://steamcommunity.com/my/tradeoffers/privacy#trade_offer_access_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[11px] text-amber-500/70 hover:text-amber-400 hover:underline"
+              >
+                Где найти trade-ссылку? →
+              </a>
+            </div>
+          ) : (
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <PanelHeader
+                search={mySearch} onSearch={setMySearch}
+                sort={mySort} onSort={setMySort}
+                prefix="my"
+                onRefresh={() => doRefresh("my", setMyRefreshing, setMyCooldown, loadMyInventory)}
+                refreshing={myRefreshing} cooldown={myCooldown}
+                tradeUrlAction={() => setEditingTradeUrl(true)}
+              />
+              <div className="flex-1 overflow-y-auto p-2">
+                <ItemGrid items={filterMy(myItems, mySearch, mySort)} side="guest" selected={selectedMy} onToggle={(id) => toggle(setSelectedMy, id)} />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ─── CENTER: Filters + Trade Summary ─── */}
