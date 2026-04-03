@@ -36,10 +36,12 @@ export async function GET() {
         { status: 502 },
       );
     }
-    items = result.items;
-    const locked = items.filter((i) => !i.tradable).length;
-    const withLockDate = items.filter((i) => !!i.tradeLockUntil).length;
-    console.log(`[/api/inventory/owner] loaded ${items.length} items (tradable=false: ${locked}, withLockDate: ${withLockDate})`);
+    const raw = result.items;
+    const locked = raw.filter((i) => !i.tradable).length;
+    const withLockDate = raw.filter((i) => !!i.tradeLockUntil).length;
+    items = raw.filter((i) => i.tradable || !!i.tradeLockUntil);
+    const hidden = raw.length - items.length;
+    console.log(`[/api/inventory/owner] loaded ${raw.length} items → shown ${items.length} (tradable=false: ${locked}, withLockDate: ${withLockDate}, hidden_permanent_nontradable: ${hidden})`);
     setCache(ownerSteamId, items);
   }
 

@@ -305,22 +305,23 @@ async function fetchViaApi(
   steamId64: string,
   apiKey: string,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const url = `https://api.steampowered.com/IEconService/GetInventoryItemsWithDescriptions/v1/?key=${apiKey}&steamid=${steamId64}&appid=${CS2_APP_ID}&contextid=${CONTEXT_ID}&get_descriptions=1&count=5000&language=english`;
-  console.log(`[steam-inv] strategy=api steamid=${steamId64}`);
+  const url = `https://api.steampowered.com/IEconService/GetInventoryItemsWithDescriptions/v1/?key=${apiKey}&steamid=${steamId64}&appid=${CS2_APP_ID}&contextid=${CONTEXT_ID}&get_descriptions=1&count=1000&language=english`;
+  console.log(`[steam-inv] strategy=api steamid=${steamId64} appid=${CS2_APP_ID}`);
 
   try {
     const { status, body } = await httpsGet(url);
+    console.log(`[steam-inv] api HTTP ${status}, body_len=${body.length}, preview: ${body.slice(0, 300)}`);
     if (status !== 200) {
-      console.error(`[steam-inv] api HTTP ${status}: ${body.slice(0, 200)}`);
       return { ok: false, error: `steam_api_${status}` };
     }
     const json = JSON.parse(body);
     const data = json?.response;
+    const keys = data ? Object.keys(data) : [];
+    console.log(`[steam-inv] api response keys: [${keys.join(",")}] total=${data?.total_inventory_count}`);
     if (!data?.assets && !data?.descriptions) {
-      console.error(`[steam-inv] api empty (total=${data?.total_inventory_count})`);
       return { ok: false, error: "empty_or_private_inventory" };
     }
-    console.log(`[steam-inv] api OK: ${data.assets?.length ?? 0} assets`);
+    console.log(`[steam-inv] api OK: ${data.assets?.length ?? 0} assets, ${data.descriptions?.length ?? 0} descriptions`);
     return { ok: true, data };
   } catch (e) {
     console.error(`[steam-inv] api error:`, e);
