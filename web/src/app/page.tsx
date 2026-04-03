@@ -28,7 +28,7 @@ export default async function Home({ searchParams }: Props) {
           CS2 trade — MVP
         </h1>
         <p className="mt-3 text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Каркас проекта: Next.js, Prisma, PostgreSQL. Этап 3 — вход через Steam и защита админки.
+          Обмен скинами CS2. Войдите через Steam, вставьте trade-ссылку и выберите предметы.
         </p>
 
         {errorText ? (
@@ -66,6 +66,12 @@ export default async function Home({ searchParams }: Props) {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
+                <Link
+                  href="/trade"
+                  className="inline-flex items-center justify-center rounded-lg bg-[#171a21] px-4 py-2 text-sm font-medium text-white hover:bg-[#2a475e]"
+                >
+                  Трейд
+                </Link>
                 {user.isAdmin ? (
                   <Link
                     href="/admin"

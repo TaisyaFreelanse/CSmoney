@@ -30,6 +30,7 @@ model User {
   isAdmin     Boolean   @default(false)
   isBanned    Boolean   @default(false)
   lastLoginAt DateTime?
+  tradeUrl    String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -54,11 +55,45 @@ model TradeItem {
   trade          Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   side           TradeItemSide
   marketHashName String?
+  phaseLabel     String?
   assetId        String?
   classId        String?
   instanceId     String?
   wear           String?
+  floatValue     Float?
   priceUsd       Decimal?      @db.Decimal(14, 4)
   quantity       Int           @default(1)
   createdAt      DateTime      @default(now())
+}
+
+// Price catalog from PriceEmpire — one row per market_hash_name (+ phase where applicable)
+model PriceCatalogItem {
+  id             String   @id @default(cuid())
+  marketHashName String
+  phaseKey       String   @default("default")
+  providerKey    String   @default("buff163")
+  priceUsd       Int // cents to avoid float rounding
+  updatedAt      DateTime @updatedAt
+
+  @@unique([marketHashName, phaseKey, providerKey])
+  @@index([marketHashName])
+}
+
+// Single-row settings for pricing; admin page edits this
+model PricingSettings {
+  id                    String   @id @default("singleton")
+  selectedPriceProvider String   @default("buff163")
+  markupGuestPercent    Float    @default(0)
+  markupOwnerPercent    Float    @default(0)
+  minPriceThresholdUsd  Float    @default(20)
+  updatedAt             DateTime @updatedAt
+}
+
+// Manual price overrides for owner items by assetId
+model OwnerManualPrice {
+  id       String   @id @default(cuid())
+  assetId  String   @unique
+  priceUsd Decimal  @db.Decimal(14, 4)
+  note     String?
+  setAt    DateTime @default(now())
 }

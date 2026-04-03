@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { getSessionUser } from "@/lib/auth";
@@ -14,11 +15,27 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-full bg-zinc-50 dark:bg-zinc-950">
-      <header className="border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-        <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Админка</p>
-        <p className="text-xs text-zinc-500">
-          {user.displayName ?? user.steamId} · полный функционал на этапе 7
-        </p>
+      <header className="flex items-center justify-between border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div>
+          <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Админка</p>
+          <p className="text-xs text-zinc-500">
+            {user.displayName ?? user.steamId}
+          </p>
+        </div>
+        <nav className="flex gap-3 text-sm">
+          <Link href="/admin" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+            Обзор
+          </Link>
+          <Link href="/admin/pricing" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+            Цены
+          </Link>
+          <Link href="/trade" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+            Трейд
+          </Link>
+          <Link href="/" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+            На сайт
+          </Link>
+        </nav>
       </header>
       <div className="px-6 py-8">{children}</div>
     </div>
