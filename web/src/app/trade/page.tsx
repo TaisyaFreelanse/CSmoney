@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import styles from "./page.module.css";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -568,7 +570,7 @@ function ItemGrid({ items, side, selected, onToggle }: {
 function RarityBar({ color }: { color: string }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => { ref.current?.style.setProperty("--rc", color); }, [color]);
-  return <div ref={ref} className="absolute inset-x-0 bottom-0 h-[2px]" style={{ backgroundColor: "var(--rc)" }} />;
+  return <div ref={ref} className={`absolute inset-x-0 bottom-0 h-[2px] ${styles.rarityBar}`} />;
 }
 
 function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelected: boolean; onToggle: () => void }) {
