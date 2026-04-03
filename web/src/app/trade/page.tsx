@@ -92,6 +92,12 @@ export default function TradePage() {
   const [editingTradeUrl, setEditingTradeUrl] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
+  // Refresh cooldowns (seconds remaining)
+  const [ownerRefreshing, setOwnerRefreshing] = useState(false);
+  const [myRefreshing, setMyRefreshing] = useState(false);
+  const [ownerCooldown, setOwnerCooldown] = useState(0);
+  const [myCooldown, setMyCooldown] = useState(0);
+
   // Selected items for trade
   const [selectedMy, setSelectedMy] = useState<Set<string>>(new Set());
   const [selectedOwner, setSelectedOwner] = useState<Set<string>>(new Set());
@@ -172,6 +178,62 @@ export default function TradePage() {
       setError(err?.message ?? "Ошибка сохранения trade-ссылки");
     }
   }, [tradeUrl]);
+
+  // Cooldown timers
+  useEffect(() => {
+    if (ownerCooldown <= 0 && myCooldown <= 0) return;
+    const t = setInterval(() => {
+      setOwnerCooldown((v) => Math.max(0, v - 1));
+      setMyCooldown((v) => Math.max(0, v - 1));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [ownerCooldown, myCooldown]);
+
+  const refreshOwner = useCallback(async () => {
+    setOwnerRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/inventory/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side: "owner" }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 429) {
+        setOwnerCooldown(Math.ceil((data?.retryAfterMs ?? 120000) / 1000));
+      } else if (res.ok) {
+        setOwnerCooldown(120);
+        await loadOwner();
+      } else {
+        setError(data?.message ?? data?.error ?? "Ошибка обновления");
+      }
+    } finally {
+      setOwnerRefreshing(false);
+    }
+  }, [loadOwner]);
+
+  const refreshMy = useCallback(async () => {
+    setMyRefreshing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/inventory/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side: "my" }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 429) {
+        setMyCooldown(Math.ceil((data?.retryAfterMs ?? 120000) / 1000));
+      } else if (res.ok) {
+        setMyCooldown(120);
+        await loadMyInventory();
+      } else {
+        setError(data?.message ?? data?.error ?? "Ошибка обновления");
+      }
+    } finally {
+      setMyRefreshing(false);
+    }
+  }, [loadMyInventory]);
 
   // Toggle selection
   const toggleMy = useCallback((id: string) => {
@@ -327,14 +389,23 @@ export default function TradePage() {
               <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
                 Ваш инвентарь
               </h2>
-              {isLoggedIn && hasTradeUrl && !editingTradeUrl && (
-                <button
-                  onClick={() => setEditingTradeUrl(true)}
-                  className="text-[11px] text-zinc-500 hover:text-zinc-300"
-                >
-                  Изменить trade-ссылку
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {isLoggedIn && hasTradeUrl && !editingTradeUrl && (
+                  <>
+                    <button
+                      onClick={() => setEditingTradeUrl(true)}
+                      className="text-[11px] text-zinc-500 hover:text-zinc-300"
+                    >
+                      Изменить trade-ссылку
+                    </button>
+                    <RefreshButton
+                      onClick={refreshMy}
+                      loading={myRefreshing}
+                      cooldown={myCooldown}
+                    />
+                  </>
+                )}
+              </div>
             </div>
 
             {!isLoggedIn ? (
@@ -411,9 +482,16 @@ export default function TradePage() {
 
           {/* Right: Owner items */}
           <div className="flex flex-col">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-400">
-              Инвентарь магазина
-            </h2>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
+                Инвентарь магазина
+              </h2>
+              <RefreshButton
+                onClick={refreshOwner}
+                loading={ownerRefreshing}
+                cooldown={ownerCooldown}
+              />
+            </div>
             <FilterBar
               search={ownerSearch}
               onSearch={setOwnerSearch}
@@ -578,6 +656,37 @@ function FilterBar({
         ))}
       </select>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Refresh button with cooldown
+// ---------------------------------------------------------------------------
+
+function RefreshButton({
+  onClick,
+  loading,
+  cooldown,
+}: {
+  onClick: () => void;
+  loading: boolean;
+  cooldown: number;
+}) {
+  const disabled = loading || cooldown > 0;
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+        disabled
+          ? "border-zinc-800 text-zinc-600 cursor-not-allowed"
+          : "border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200"
+      }`}
+      title={cooldown > 0 ? `Доступно через ${cooldown} сек.` : "Обновить инвентарь"}
+    >
+      <span className={loading ? "animate-spin" : ""}>↻</span>
+      {cooldown > 0 ? `${cooldown}с` : "Обновить"}
+    </button>
   );
 }
 
