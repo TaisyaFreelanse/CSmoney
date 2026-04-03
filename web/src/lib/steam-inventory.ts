@@ -1,13 +1,16 @@
 /**
  * Steam CS2 inventory fetching and normalization.
  *
- * Owner inventory: fetched via Steam Web API (IEconItems / GetPlayerItems or
- * the community endpoint with the server-side API key) — sees trade-locked items.
+ * Multiple fetch strategies are attempted in order:
+ * 1. IEconService API (with Steam Web API Key)
+ * 2. Community endpoint (new format)
+ * 3. Community endpoint (old JSON format /inventory/json/)
  *
- * Guest inventory: fetched using the community endpoint with the partner + token
- * derived from their trade URL (avoids the public profile /inventory/ endpoint
- * which is more aggressively rate-limited by Steam).
+ * Steam aggressively blocks server-side requests from cloud IPs.
+ * We use Node.js native https to avoid Next.js fetch patching interference.
  */
+
+import https from "node:https";
 
 const CS2_APP_ID = 730;
 const CONTEXT_ID = "2";
@@ -59,7 +62,7 @@ export function steamId64FromPartner(partner: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Phase detection (Doppler / Gamma Doppler / etc.)
+// Phase detection
 // ---------------------------------------------------------------------------
 
 const PHASE_TAGS: Record<string, string> = {
@@ -91,8 +94,7 @@ function detectPhase(
 // Sticker extraction
 // ---------------------------------------------------------------------------
 
-const STICKER_RE =
-  /src="(https?:\/\/[^"]+)"[^>]*><br>\s*([^<]+)/g;
+const STICKER_RE = /src="(https?:\/\/[^"]+)"[^>]*><br>\s*([^<]+)/g;
 
 function extractStickers(
   descriptions: Array<{ value?: string }> | undefined,
@@ -111,15 +113,14 @@ function extractStickers(
 }
 
 // ---------------------------------------------------------------------------
-// Wear mapping
+// Tag helpers
 // ---------------------------------------------------------------------------
 
 function wearFromTags(
   tags: Array<{ category?: string; localized_tag_name?: string }> | undefined,
 ): string | null {
   if (!tags) return null;
-  const t = tags.find((t) => t.category === "Exterior");
-  return t?.localized_tag_name ?? null;
+  return tags.find((t) => t.category === "Exterior")?.localized_tag_name ?? null;
 }
 
 function rarityFromTags(
@@ -127,22 +128,18 @@ function rarityFromTags(
 ): { rarity: string | null; rarityColor: string | null } {
   if (!tags) return { rarity: null, rarityColor: null };
   const t = tags.find((t) => t.category === "Rarity");
-  return { rarity: t?.localized_tag_name ?? null, rarityColor: t?.color ? `#${t.color}` : null };
+  return {
+    rarity: t?.localized_tag_name ?? null,
+    rarityColor: t?.color ? `#${t.color}` : null,
+  };
 }
 
 function typeFromTags(
   tags: Array<{ category?: string; localized_tag_name?: string }> | undefined,
 ): string | null {
   if (!tags) return null;
-  const t = tags.find((t) => t.category === "Type");
-  return t?.localized_tag_name ?? null;
+  return tags.find((t) => t.category === "Type")?.localized_tag_name ?? null;
 }
-
-// ---------------------------------------------------------------------------
-// Float value extraction from inspect link (placeholder — requires external service)
-// For MVP we parse the "Float: X.XXXX" that some enriched endpoints provide,
-// or leave null if unavailable.
-// ---------------------------------------------------------------------------
 
 function extractFloat(
   descriptions: Array<{ value?: string }> | undefined,
@@ -155,17 +152,12 @@ function extractFloat(
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Trade lock detection
-// ---------------------------------------------------------------------------
-
 function detectTradeLock(
   descriptions: Array<{ value?: string; color?: string }> | undefined,
 ): string | null {
   if (!descriptions) return null;
   for (const d of descriptions) {
     const val = d.value ?? "";
-    // Steam puts e.g. "Tradable After Mar 30, 2026 (7:00:00) GMT"
     const m = /Tradable After\s+(.+)/i.exec(val);
     if (m) {
       try {
@@ -179,13 +171,31 @@ function detectTradeLock(
 }
 
 // ---------------------------------------------------------------------------
-// Normalize raw Steam JSON into NormalizedItem[]
+// Normalizer — handles both new and old Steam JSON formats
 // ---------------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function normalizeInventory(raw: any): NormalizedItem[] {
-  const assets: any[] = raw?.assets ?? [];
-  const descriptions: any[] = raw?.descriptions ?? [];
+  // New format: { assets: [...], descriptions: [...] }
+  // Old format: { rgInventory: { assetid: {...} }, rgDescriptions: { classid_instanceid: {...} } }
+  let assets: any[] = [];
+  let descriptions: any[] = [];
+
+  if (Array.isArray(raw?.assets)) {
+    assets = raw.assets;
+    descriptions = raw.descriptions ?? [];
+  } else if (raw?.rgInventory && raw?.rgDescriptions) {
+    // Old format
+    const rgInv = raw.rgInventory;
+    const rgDesc = raw.rgDescriptions;
+    assets = Object.values(rgInv).map((a: any) => ({
+      assetid: a.id,
+      classid: a.classid,
+      instanceid: a.instanceid,
+      amount: a.amount,
+    }));
+    descriptions = Object.values(rgDesc);
+  }
 
   const descMap = new Map<string, any>();
   for (const d of descriptions) {
@@ -203,7 +213,7 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
     const tradeLockUntil = detectTradeLock(desc.descriptions);
 
     items.push({
-      assetId: a.assetid,
+      assetId: a.assetid ?? a.id,
       classId: a.classid,
       instanceId: a.instanceid,
       marketHashName: desc.market_hash_name ?? desc.name ?? "",
@@ -217,8 +227,8 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
       phaseLabel: phase,
       stickers: extractStickers(desc.descriptions),
       tradeLockUntil,
-      tradable: desc.tradable === 1,
-      marketable: desc.marketable === 1,
+      tradable: desc.tradable === 1 || desc.tradable === true,
+      marketable: desc.marketable === 1 || desc.marketable === true,
     });
   }
   return items;
@@ -226,80 +236,165 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---------------------------------------------------------------------------
-// Fetch inventory via Steam community endpoint
+// Native HTTPS fetcher (bypasses Next.js fetch patching)
 // ---------------------------------------------------------------------------
 
-async function fetchViaCommunity(
-  steamId64: string,
-): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const url = `https://steamcommunity.com/inventory/${steamId64}/${CS2_APP_ID}/${CONTEXT_ID}?l=english&count=5000`;
-  console.log(`[steam-inv] community fetch: ${url}`);
-
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-      Accept: "application/json, text/javascript;q=0.9, */*;q=0.8",
-      Referer: `https://steamcommunity.com/profiles/${steamId64}/inventory/`,
-    },
-    next: { revalidate: 0 },
+function httpsGet(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf-8"),
+        });
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(15_000, () => {
+      req.destroy();
+      reject(new Error("timeout"));
+    });
   });
-
-  if (res.status === 403) return { ok: false, error: "private_inventory" };
-  if (res.status === 429) return { ok: false, error: "steam_rate_limit" };
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error(`[steam-inv] community HTTP ${res.status}: ${body.slice(0, 500)}`);
-    return { ok: false, error: `steam_http_${res.status}` };
-  }
-
-  const json = await res.json();
-  if (!json || (!json.assets && !json.descriptions)) {
-    console.error(`[steam-inv] community empty response`, JSON.stringify(json).slice(0, 300));
-    return { ok: false, error: "empty_inventory" };
-  }
-  return { ok: true, data: json };
 }
+
+// ---------------------------------------------------------------------------
+// Strategy 1: IEconService API
+// ---------------------------------------------------------------------------
 
 async function fetchViaApi(
   steamId64: string,
   apiKey: string,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const url = `https://api.steampowered.com/IEconService/GetInventoryItemsWithDescriptions/v1/?key=${apiKey}&steamid=${steamId64}&appid=${CS2_APP_ID}&contextid=${CONTEXT_ID}&get_descriptions=1&count=5000`;
-  console.log(`[steam-inv] API fetch: ${steamId64}`);
+  const url = `https://api.steampowered.com/IEconService/GetInventoryItemsWithDescriptions/v1/?key=${apiKey}&steamid=${steamId64}&appid=${CS2_APP_ID}&contextid=${CONTEXT_ID}&get_descriptions=1&count=5000&language=english`;
+  console.log(`[steam-inv] strategy=api steamid=${steamId64}`);
 
-  const res = await fetch(url, { next: { revalidate: 0 } });
-
-  if (!res.ok) {
-    console.error(`[steam-inv] API HTTP ${res.status}`);
-    return { ok: false, error: `steam_api_${res.status}` };
-  }
-
-  const json = await res.json();
-  const data = (json as Record<string, unknown>)?.response as Record<string, unknown> | undefined;
-  if (!data || (!data.assets && !data.descriptions)) {
-    const totalCount = data?.total_inventory_count;
-    console.error(`[steam-inv] API empty response (total_inventory_count=${totalCount})`, JSON.stringify(json).slice(0, 500));
-    // total_inventory_count=0 with valid response means private or genuinely empty
-    if (totalCount === 0 || totalCount === undefined) {
+  try {
+    const { status, body } = await httpsGet(url);
+    if (status !== 200) {
+      console.error(`[steam-inv] api HTTP ${status}: ${body.slice(0, 200)}`);
+      return { ok: false, error: `steam_api_${status}` };
+    }
+    const json = JSON.parse(body);
+    const data = json?.response;
+    if (!data?.assets && !data?.descriptions) {
+      console.error(`[steam-inv] api empty (total=${data?.total_inventory_count})`);
       return { ok: false, error: "empty_or_private_inventory" };
     }
-    return { ok: false, error: "empty_inventory" };
+    console.log(`[steam-inv] api OK: ${data.assets?.length ?? 0} assets`);
+    return { ok: true, data };
+  } catch (e) {
+    console.error(`[steam-inv] api error:`, e);
+    return { ok: false, error: "steam_api_error" };
   }
-  return { ok: true, data };
 }
+
+// ---------------------------------------------------------------------------
+// Strategy 2: Community endpoint (new format)
+// ---------------------------------------------------------------------------
+
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Encoding": "identity",
+  "Cache-Control": "no-cache",
+  Connection: "keep-alive",
+};
+
+async function fetchViaCommunityNew(
+  steamId64: string,
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  const url = `https://steamcommunity.com/inventory/${steamId64}/${CS2_APP_ID}/${CONTEXT_ID}?l=english&count=2000`;
+  console.log(`[steam-inv] strategy=community-new`);
+
+  try {
+    const { status, body } = await httpsGet(url, BROWSER_HEADERS);
+    if (status === 403) return { ok: false, error: "private_inventory" };
+    if (status === 429) return { ok: false, error: "steam_rate_limit" };
+    if (status !== 200) {
+      console.error(`[steam-inv] community-new HTTP ${status}: ${body.slice(0, 300)}`);
+      return { ok: false, error: `steam_http_${status}` };
+    }
+    const json = JSON.parse(body);
+    if (!json?.assets && !json?.descriptions) {
+      console.error(`[steam-inv] community-new empty:`, body.slice(0, 300));
+      return { ok: false, error: "empty_inventory" };
+    }
+    console.log(`[steam-inv] community-new OK: ${json.assets?.length ?? 0} assets`);
+    return { ok: true, data: json };
+  } catch (e) {
+    console.error(`[steam-inv] community-new error:`, e);
+    return { ok: false, error: "community_error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Strategy 3: Community endpoint (old JSON format)
+// ---------------------------------------------------------------------------
+
+async function fetchViaCommunityOld(
+  steamId64: string,
+): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
+  const url = `https://steamcommunity.com/profiles/${steamId64}/inventory/json/${CS2_APP_ID}/${CONTEXT_ID}?l=english&trading=1`;
+  console.log(`[steam-inv] strategy=community-old`);
+
+  try {
+    const { status, body } = await httpsGet(url, BROWSER_HEADERS);
+    if (status === 403) return { ok: false, error: "private_inventory" };
+    if (status === 429) return { ok: false, error: "steam_rate_limit" };
+    if (status !== 200) {
+      console.error(`[steam-inv] community-old HTTP ${status}: ${body.slice(0, 300)}`);
+      return { ok: false, error: `steam_http_${status}` };
+    }
+    const json = JSON.parse(body);
+    if (json?.success !== true && json?.success !== 1) {
+      console.error(`[steam-inv] community-old success=false:`, body.slice(0, 300));
+      return { ok: false, error: "steam_rejected" };
+    }
+    if (!json?.rgInventory || Object.keys(json.rgInventory).length === 0) {
+      console.error(`[steam-inv] community-old empty inventory`);
+      return { ok: false, error: "empty_inventory" };
+    }
+    console.log(`[steam-inv] community-old OK: ${Object.keys(json.rgInventory).length} items`);
+    return { ok: true, data: json };
+  } catch (e) {
+    console.error(`[steam-inv] community-old error:`, e);
+    return { ok: false, error: "community_old_error" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Orchestrator: tries all strategies in order
+// ---------------------------------------------------------------------------
 
 async function fetchSteamInventoryRaw(
   steamId64: string,
   apiKey?: string,
 ): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  // Try IEconService API first (sees trade-locked items); fallback to community endpoint
+  const errors: string[] = [];
+
   if (apiKey) {
-    const apiResult = await fetchViaApi(steamId64, apiKey);
-    if (apiResult.ok) return apiResult;
-    console.warn(`[steam-inv] API failed, trying community fallback…`);
+    const r = await fetchViaApi(steamId64, apiKey);
+    if (r.ok) return r;
+    errors.push(`api:${r.error}`);
   }
-  return fetchViaCommunity(steamId64);
+
+  const r2 = await fetchViaCommunityNew(steamId64);
+  if (r2.ok) return r2;
+  errors.push(`new:${r2.error}`);
+
+  const r3 = await fetchViaCommunityOld(steamId64);
+  if (r3.ok) return r3;
+  errors.push(`old:${r3.error}`);
+
+  console.error(`[steam-inv] ALL strategies failed for ${steamId64}: ${errors.join(", ")}`);
+  return { ok: false, error: `all_failed(${errors.join(",")})` };
 }
 
 // ---------------------------------------------------------------------------

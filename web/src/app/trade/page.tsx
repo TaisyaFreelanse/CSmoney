@@ -84,6 +84,7 @@ export default function TradePage() {
   const [error, setError] = useState<string | null>(null);
   const [tradeUrl, setTradeUrl] = useState("");
   const [hasTradeUrl, setHasTradeUrl] = useState(false);
+  const [editingTradeUrl, setEditingTradeUrl] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   // Filters — shared between both panels
@@ -146,7 +147,7 @@ export default function TradePage() {
     });
     if (res.ok) {
       setHasTradeUrl(true);
-      // Reload inventory
+      setEditingTradeUrl(false);
       const myRes = await fetch("/api/inventory/me");
       if (myRes.ok) {
         const data = await myRes.json();
@@ -298,10 +299,12 @@ export default function TradePage() {
                 </a>{" "}
                 чтобы увидеть свой инвентарь
               </div>
-            ) : !hasTradeUrl ? (
+            ) : !hasTradeUrl || editingTradeUrl ? (
               <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-6">
                 <p className="mb-3 text-sm text-zinc-400">
-                  Вставьте вашу trade-ссылку из Steam для загрузки инвентаря:
+                  {hasTradeUrl
+                    ? "Обновите вашу trade-ссылку:"
+                    : "Вставьте вашу trade-ссылку из Steam для загрузки инвентаря:"}
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -317,10 +320,28 @@ export default function TradePage() {
                   >
                     Сохранить
                   </button>
+                  {hasTradeUrl && (
+                    <button
+                      onClick={() => setEditingTradeUrl(false)}
+                      className="rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-400 hover:text-zinc-100"
+                    >
+                      Отмена
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
-              <ItemGrid items={filterAndSort(myItems)} side="guest" />
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <button
+                    onClick={() => setEditingTradeUrl(true)}
+                    className="text-xs text-zinc-500 hover:text-zinc-300"
+                  >
+                    Изменить trade-ссылку
+                  </button>
+                </div>
+                <ItemGrid items={filterAndSort(myItems)} side="guest" />
+              </div>
             )}
           </div>
 
