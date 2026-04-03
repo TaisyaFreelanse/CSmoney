@@ -635,32 +635,46 @@ function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelec
   const isLocked = !item.tradable || hasTimedLock;
   const isUnavailable = item.belowThreshold && item.priceSource !== "manual";
   const disabled = isLocked || isUnavailable;
-  const wearShort = item.wear ? WEAR_SHORT[item.wear] ?? item.wear : null;
+
+  const nameColor = item.rarityColor ?? "#e4e4e7";
 
   return (
     <div
       onClick={disabled ? undefined : onToggle}
-      className={`group relative flex flex-col overflow-hidden rounded-xl transition-all ${
+      className={`group relative flex flex-col overflow-hidden rounded-xl border transition-all ${
         disabled
-          ? "bg-zinc-900/40 opacity-50"
+          ? "border-zinc-800/40 bg-zinc-900/40 opacity-50"
           : isSelected
-            ? "bg-zinc-800/80 ring-2 ring-amber-500/60 cursor-pointer"
-            : "bg-zinc-900/60 hover:bg-zinc-800/60 cursor-pointer"
+            ? "border-amber-500/60 bg-zinc-800/80 ring-1 ring-amber-500/40 cursor-pointer"
+            : "border-zinc-800/40 bg-zinc-900/60 hover:border-zinc-700/60 hover:bg-zinc-800/60 cursor-pointer"
       }`}
     >
-      {/* Selection badge */}
       {isSelected && (
         <div className="absolute left-1.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-black">✓</div>
       )}
 
+      {/* Top: Name + Wear */}
+      <div className="flex flex-col items-center gap-1 px-2 pt-2">
+        <p className="w-full truncate text-center text-[11px] font-semibold leading-tight" style={{ color: nameColor }} title={item.name}>
+          {item.name}
+        </p>
+        {item.wear && (
+          <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[9px] font-medium text-zinc-400">
+            {item.wear}
+          </span>
+        )}
+      </div>
+
       {/* Image area */}
-      <div className="relative flex items-center justify-center px-2 pb-0 pt-3">
+      <div className="relative flex items-center justify-center px-2 py-2">
         {isUnavailable ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={item.iconUrl} alt="" className="h-[72px] w-[72px] object-contain blur-sm opacity-40" loading="lazy" />
-            <div className="absolute inset-0 flex items-center justify-center">
-              <span className="rounded bg-zinc-900/90 px-2 py-1 text-center text-[9px] font-semibold uppercase leading-tight text-zinc-500">UNAVAILABLE<br />Price too low</span>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
+              <span className="text-base text-zinc-500">ⓘ</span>
+              <span className="text-[10px] font-semibold uppercase text-amber-600">UNAVAILABLE</span>
+              <span className="text-[8px] text-zinc-500">(Unstable Price)</span>
             </div>
           </>
         ) : (
@@ -668,16 +682,14 @@ function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelec
           <img src={item.iconUrl} alt={item.name} className="h-[72px] w-[72px] object-contain transition-transform group-hover:scale-105" loading="lazy" />
         )}
 
-        {/* Trade lock */}
         {isLocked && (
           <div className="absolute right-1 top-1 flex items-center gap-0.5 rounded bg-orange-700/80 px-1 py-0.5 text-[8px] font-medium text-orange-100">
             🔒 {hasTimedLock ? fmtLock(item.tradeLockUntil!) : "Locked"}
           </div>
         )}
 
-        {/* Stickers */}
         {item.stickers.length > 0 && (
-          <div className="absolute bottom-0 left-1 flex gap-0.5" title={item.stickers.map((s) => s.name).join(", ")}>
+          <div className="absolute bottom-1 left-1 flex gap-0.5" title={item.stickers.map((s) => s.name).join(", ")}>
             {item.stickers.slice(0, 5).map((s, i) => (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img key={i} src={s.iconUrl} alt={s.name} className="h-[18px] w-[18px] rounded-sm drop-shadow" loading="lazy" />
@@ -687,60 +699,35 @@ function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelec
         )}
       </div>
 
-      {/* Info */}
-      <div className="relative flex flex-col gap-0.5 px-2 pb-2 pt-1.5">
-        {/* Phase label (prominent, like sargee) */}
+      {/* Bottom: Phase, Float, Price */}
+      <div className="relative flex flex-col gap-0.5 px-2 pb-2">
+        {/* Phase label */}
         {item.phaseLabel && (
-          <span className={`mb-0.5 self-start rounded px-1.5 py-0.5 text-[9px] font-bold ${phaseStyle(item.phaseLabel)}`}>
+          <p className={`text-center text-[11px] font-bold ${phaseTextColor(item.phaseLabel)}`}>
             {item.phaseLabel}
-          </span>
-        )}
-
-        {/* Name */}
-        <p className="truncate text-[11px] font-medium leading-tight text-zinc-200" title={item.name}>{item.name}</p>
-
-        {/* Wear badge */}
-        {wearShort && (
-          <span className="self-start rounded bg-zinc-800 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-400">
-            {wearShort}
-          </span>
+          </p>
         )}
 
         {/* Float */}
         {item.floatValue != null && (
-          <div className="mt-0.5">
-            <p className="text-[10px] font-medium text-emerald-400">Float: {item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}</p>
+          <div>
+            <p className="text-[10px] text-zinc-400">Float: <span className="font-medium text-zinc-200">{item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}</span></p>
             <div className="mt-0.5 h-1 w-full overflow-hidden rounded-full bg-zinc-800">
-              <svg
-                className="block h-full w-full"
-                viewBox="0 0 100 1"
-                preserveAspectRatio="none"
-                aria-hidden
-              >
-                <rect
-                  x={0}
-                  y={0}
-                  width={Math.min(item.floatValue * 100, 100)}
-                  height={1}
-                  fill={floatBarColor(item.floatValue)}
-                  rx={0.5}
-                />
-              </svg>
+              <div className="h-full rounded-full" style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }} />
             </div>
           </div>
         )}
 
         {/* Price */}
-        <div className="mt-auto flex items-center justify-between pt-1">
+        <div className="mt-1 flex items-baseline justify-between">
           {item.priceSource === "unavailable" || isUnavailable ? (
             <span className="text-[10px] text-zinc-600">—</span>
           ) : (
-            <span className="text-xs font-bold text-amber-400">{fmtPrice(item.priceUsd)}</span>
+            <span className="text-[13px] font-bold text-amber-400">{fmtPrice(item.priceUsd)}</span>
           )}
           {item.priceSource === "manual" && <span className="text-[8px] text-amber-700">manual</span>}
         </div>
 
-        {/* Rarity bar */}
         {item.rarityColor && <RarityBar color={item.rarityColor} />}
       </div>
     </div>
@@ -751,17 +738,17 @@ function ItemCard({ item, isSelected, onToggle }: { item: InventoryItem; isSelec
 // Helpers
 // ---------------------------------------------------------------------------
 
-function phaseStyle(phase: string): string {
+function phaseTextColor(phase: string): string {
   switch (phase) {
-    case "Ruby": return "bg-red-900/60 text-red-400";
-    case "Sapphire": return "bg-blue-900/60 text-blue-400";
-    case "Emerald": return "bg-emerald-900/60 text-emerald-400";
-    case "Black Pearl": return "bg-purple-900/60 text-purple-400";
-    case "Phase 1": return "bg-pink-900/40 text-pink-400";
-    case "Phase 2": return "bg-cyan-900/40 text-cyan-400";
-    case "Phase 3": return "bg-green-900/40 text-green-400";
-    case "Phase 4": return "bg-indigo-900/40 text-indigo-400";
-    default: return "bg-zinc-800 text-zinc-300";
+    case "Ruby": return "text-red-500";
+    case "Sapphire": return "text-blue-400";
+    case "Emerald": return "text-emerald-400";
+    case "Black Pearl": return "text-purple-400";
+    case "Phase 1": return "text-pink-400";
+    case "Phase 2": return "text-cyan-400";
+    case "Phase 3": return "text-green-400";
+    case "Phase 4": return "text-indigo-400";
+    default: return "text-zinc-300";
   }
 }
 
