@@ -263,12 +263,6 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
 
     const stickers = extractStickers(desc.descriptions);
 
-    const hasStickerHtml = desc.descriptions?.some((dd: any) => dd.value?.includes("sticker_info"));
-    if (hasStickerHtml) {
-      const stickerHtml = desc.descriptions.find((dd: any) => dd.value?.includes("sticker_info"))?.value ?? "";
-      console.log(`[sticker-debug] ${desc.name} → found ${stickers.length} stickers, html length=${stickerHtml.length}, first 500 chars: ${stickerHtml.slice(0, 500)}`);
-    }
-
     items.push({
       assetId: a.assetid ?? a.id,
       classId: a.classid,
