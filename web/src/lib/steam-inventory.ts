@@ -63,8 +63,53 @@ export function steamId64FromPartner(partner: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Phase detection
+// Phase detection — paint index from asset_properties (Finish Catalog)
 // ---------------------------------------------------------------------------
+
+const PAINT_INDEX_PHASE: Record<number, string> = {
+  415: "Ruby",
+  416: "Sapphire",
+  417: "Black Pearl",
+  418: "Phase 1",
+  419: "Phase 2",
+  420: "Phase 3",
+  421: "Phase 4",
+  568: "Emerald",
+  569: "Phase 1",
+  570: "Phase 2",
+  571: "Phase 3",
+  572: "Phase 4",
+};
+
+function extractFromAssetProperties(
+  assetProperties: Array<{ propertyid?: number; float_value?: string; int_value?: string; name?: string }> | undefined,
+): { floatValue: number | null; paintIndex: number | null } {
+  if (!assetProperties || !Array.isArray(assetProperties)) {
+    return { floatValue: null, paintIndex: null };
+  }
+
+  let floatValue: number | null = null;
+  let paintIndex: number | null = null;
+
+  for (const prop of assetProperties) {
+    if (prop.propertyid === 2 && prop.float_value != null) {
+      const parsed = parseFloat(String(prop.float_value));
+      if (!isNaN(parsed) && parsed > 0) floatValue = parsed;
+    }
+    if (prop.propertyid === 7 && prop.int_value != null) {
+      const parsed = parseInt(String(prop.int_value), 10);
+      if (!isNaN(parsed)) paintIndex = parsed;
+    }
+  }
+
+  return { floatValue, paintIndex };
+}
+
+function phaseFromPaintIndex(paintIndex: number | null, itemName: string): string | null {
+  if (paintIndex == null) return null;
+  if (!itemName.toLowerCase().includes("doppler")) return null;
+  return PAINT_INDEX_PHASE[paintIndex] ?? null;
+}
 
 const PHASE_TAGS: Record<string, string> = {
   "Phase 1": "Phase 1",
@@ -77,7 +122,7 @@ const PHASE_TAGS: Record<string, string> = {
   "Black Pearl": "Black Pearl",
 };
 
-function detectPhase(
+function detectPhaseFromTagsDescs(
   descriptions: Array<{ value?: string; color?: string }> | undefined,
   tags: Array<{ category?: string; internal_name?: string; localized_tag_name?: string }> | undefined,
 ): string | null {
@@ -253,15 +298,14 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
 
     const icon = desc.icon_url ? `${STEAM_CDN}${desc.icon_url}` : "";
     const { rarity, rarityColor } = rarityFromTags(desc.tags);
-    const phase = detectPhase(desc.descriptions, desc.tags);
     const tradeLockUntil = detectTradeLock(desc.descriptions);
 
     const itemName: string = desc.market_hash_name ?? desc.name ?? "";
-    if (itemName.includes("Doppler") && !phase) {
-      const tagDump = (desc.tags ?? []).map((t: any) => `${t.category}:${t.internal_name}:${t.localized_tag_name}`).join(" | ");
-      const descDump = (desc.descriptions ?? []).map((d: any) => (d.value ?? "").slice(0, 80)).filter(Boolean).join(" | ");
-      console.log(`[phase-debug] NO PHASE for "${itemName}" asset=${a.assetid ?? a.id} tags=[${tagDump}] descs=[${descDump}] icon_url_tail=${(desc.icon_url ?? "").slice(-60)}`);
-    }
+
+    const { floatValue: apFloat, paintIndex } = extractFromAssetProperties(desc.asset_properties);
+    const apPhase = phaseFromPaintIndex(paintIndex, itemName);
+    const phase = apPhase ?? detectPhaseFromTagsDescs(desc.descriptions, desc.tags);
+    const floatVal = apFloat ?? extractFloat(desc.descriptions);
 
     const inspectRaw = extractInspectLink(desc.actions);
     const inspectLink = inspectRaw
@@ -281,7 +325,7 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
       rarityColor,
       type: typeFromTags(desc.tags),
       wear: wearFromTags(desc.tags),
-      floatValue: extractFloat(desc.descriptions),
+      floatValue: floatVal,
       phaseLabel: phase,
       stickers,
       tradeLockUntil,
