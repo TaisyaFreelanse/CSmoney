@@ -8,6 +8,7 @@ import { getCached, setCache } from "@/lib/inventory-cache";
 import { fetchOwnerInventory } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 import { resolvePrice } from "@/lib/pricempire";
+import { mergeCsFloatCache, startBackgroundEnrichment } from "@/lib/csfloat";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,18 @@ export async function GET() {
     });
     const locked = items.filter((i) => !i.tradable).length;
     console.log(`[/api/inventory/owner] loaded ${raw.length} items → shown ${items.length} (hidden_junk=${raw.length - items.length}, tradable=false: ${locked})`);
+
+    const csFloatMerged = mergeCsFloatCache(items);
+    console.log(`[/api/inventory/owner] CSFloat cache merge: ${csFloatMerged} items enriched`);
+
+    startBackgroundEnrichment(items);
+
     setCache(ownerSteamId, items);
+  } else {
+    const csFloatMerged = mergeCsFloatCache(items);
+    if (csFloatMerged > 0) {
+      console.log(`[/api/inventory/owner] cached items re-enriched with CSFloat: ${csFloatMerged}`);
+    }
   }
 
   try {
