@@ -1,12 +1,17 @@
 /**
- * CS2 inspect link decoder for float values and Doppler phase detection.
+ * Float value and Doppler phase enrichment via PriceEmpire CS2 Inspect API.
  *
- * Uses @csfloat/cs2-inspect-serializer to decode CS2 inspect links locally.
- * CS2 inspect links now self-encode item properties (float, paint index, etc.),
- * so no external API calls are needed.
+ * Steam's community endpoint doesn't return asset_properties (float, paint index)
+ * for server-side requests. We use PriceEmpire's inspect endpoint to decode
+ * inspect links and get float values + paint indices for Doppler phase detection.
+ *
+ * Strategy:
+ * - Background enrichment: items are processed asynchronously with rate limiting.
+ * - In-memory cache: results are cached by assetId.
+ * - Merge on read: inventory routes merge cached data on every request.
  */
 
-import { decodeLink } from "@csfloat/cs2-inspect-serializer";
+import https from "node:https";
 
 const PAINT_INDEX_PHASE: Record<number, string> = {
   415: "Ruby",
@@ -29,37 +34,78 @@ export interface InspectData {
   paintSeed: number;
 }
 
-export function decodeInspectLink(inspectLink: string): InspectData | null {
-  try {
-    const decoded = decodeLink(inspectLink);
-    if (!decoded) return null;
+const cache = new Map<string, InspectData>();
+let enrichmentRunning = false;
+let lastEnrichmentStart = 0;
+const ENRICHMENT_COOLDOWN_MS = 5 * 60 * 1000;
 
-    return {
-      floatValue: decoded.paintwear ?? 0,
-      paintIndex: decoded.paintindex ?? 0,
-      paintSeed: decoded.paintseed ?? 0,
-    };
-  } catch {
-    // New CS2 hex-encoded links decode above; old S/A/D format links fail.
-    // Try extracting the D parameter and decoding it as hex.
-    try {
-      const dMatch = /D([0-9A-Fa-f]{10,})/.exec(inspectLink);
-      if (dMatch) {
-        const { decodeHex } = require("@csfloat/cs2-inspect-serializer") as {
-          decodeHex: (hex: string) => { paintwear?: number; paintindex?: number; paintseed?: number };
-        };
-        const decoded = decodeHex(dMatch[1]);
-        if (decoded) {
-          return {
-            floatValue: decoded.paintwear ?? 0,
-            paintIndex: decoded.paintindex ?? 0,
-            paintSeed: decoded.paintseed ?? 0,
-          };
-        }
-      }
-    } catch {
-      // D param is decimal (old format), can't decode locally
+function httpsGet(
+  url: string,
+  headers: Record<string, string> = {},
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        resolve({
+          status: res.statusCode ?? 0,
+          body: Buffer.concat(chunks).toString("utf-8"),
+        });
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(15_000, () => {
+      req.destroy();
+      reject(new Error("inspect api timeout"));
+    });
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Parse S, A, D parameters from an inspect link.
+ */
+function parseInspectParams(link: string): { s: string; a: string; d: string } | null {
+  const decoded = decodeURIComponent(link);
+  const m = /S(\d+)A(\d+)D(\d+)/.exec(decoded);
+  if (!m) return null;
+  return { s: m[1], a: m[2], d: m[3] };
+}
+
+/**
+ * Call PriceEmpire Inspect API to get float + paint index.
+ */
+async function fetchInspectData(
+  s: string,
+  a: string,
+  d: string,
+): Promise<InspectData | null> {
+  const url = `https://inspect.pricempire.com/inspect?s=${s}&a=${a}&d=${d}`;
+  try {
+    const { status, body } = await httpsGet(url, {
+      Accept: "application/json",
+    });
+    if (status === 429) {
+      console.warn("[inspect] rate limited");
+      return null;
     }
+    if (status !== 200) {
+      return null;
+    }
+    const json = JSON.parse(body);
+    const info = json?.iteminfo ?? json;
+    if (!info) return null;
+
+    const floatValue = parseFloat(info.floatvalue ?? info.float_value ?? "0") || 0;
+    const paintIndex = parseInt(info.paintindex ?? info.paint_index ?? "0", 10) || 0;
+    const paintSeed = parseInt(info.paintseed ?? info.paint_seed ?? "0", 10) || 0;
+
+    return { floatValue, paintIndex, paintSeed };
+  } catch {
     return null;
   }
 }
@@ -82,41 +128,87 @@ interface EnrichableItem {
 }
 
 /**
- * Enrich items with float values and Doppler phases by decoding inspect links.
- * Mutates items in-place. Returns the number of items enriched.
+ * Merge cached inspect data into items (mutates in-place).
  */
-export function enrichFromInspectLinks(items: EnrichableItem[]): number {
+export function mergeInspectCache(items: EnrichableItem[]): number {
   let count = 0;
   for (const item of items) {
-    if (!item.inspectLink) continue;
-
-    const data = decodeInspectLink(item.inspectLink);
+    const data = cache.get(item.assetId);
     if (!data) continue;
-
-    if (data.floatValue > 0) {
-      item.floatValue = data.floatValue;
-    }
-
+    if (data.floatValue > 0) item.floatValue = data.floatValue;
     const phase = phaseFromPaintIndex(data.paintIndex, item.marketHashName);
-    if (phase) {
-      item.phaseLabel = phase;
-    }
-
+    if (phase) item.phaseLabel = phase;
     count++;
   }
-
-  const withFloat = items.filter((i) => i.floatValue != null && i.floatValue > 0).length;
-  const withPhase = items.filter((i) => i.phaseLabel != null).length;
-  const withInspect = items.filter((i) => i.inspectLink).length;
-  console.log(
-    `[csfloat] inspect decode: total=${items.length}, with_inspect=${withInspect}, decoded=${count}, with_float=${withFloat}, with_phase=${withPhase}`,
-  );
-  if (withInspect > 0 && count === 0) {
-    const sample = items.find((i) => i.inspectLink);
-    if (sample) {
-      console.log(`[csfloat] sample inspect link: ${sample.inspectLink?.slice(0, 200)}`);
-    }
-  }
-
   return count;
+}
+
+/**
+ * Start background enrichment via PriceEmpire Inspect API.
+ * Rate-limited to ~2 requests/second to avoid overwhelming the API.
+ */
+export function startBackgroundEnrichment(items: EnrichableItem[]): void {
+  if (enrichmentRunning) return;
+  if (Date.now() - lastEnrichmentStart < ENRICHMENT_COOLDOWN_MS) return;
+
+  const toEnrich = items.filter((i) => {
+    if (!i.inspectLink) return false;
+    if (cache.has(i.assetId)) return false;
+    return true;
+  });
+
+  if (toEnrich.length === 0) return;
+
+  console.log(`[inspect] starting background enrichment: ${toEnrich.length} items`);
+  enrichmentRunning = true;
+  lastEnrichmentStart = Date.now();
+
+  (async () => {
+    let success = 0;
+    let fail = 0;
+    let rateLimited = 0;
+
+    for (const item of toEnrich) {
+      const params = parseInspectParams(item.inspectLink!);
+      if (!params || params.s === "0") {
+        fail++;
+        continue;
+      }
+
+      try {
+        const data = await fetchInspectData(params.s, params.a, params.d);
+        if (data && (data.floatValue > 0 || data.paintIndex > 0)) {
+          cache.set(item.assetId, data);
+          if (data.floatValue > 0) item.floatValue = data.floatValue;
+          const phase = phaseFromPaintIndex(data.paintIndex, item.marketHashName);
+          if (phase) item.phaseLabel = phase;
+          success++;
+        } else {
+          fail++;
+        }
+      } catch {
+        fail++;
+      }
+
+      if (rateLimited > 5) {
+        console.warn("[inspect] too many rate limits, stopping");
+        break;
+      }
+
+      await sleep(500);
+    }
+
+    const withFloat = items.filter((i) => i.floatValue != null && i.floatValue > 0).length;
+    const withPhase = items.filter((i) => i.phaseLabel != null).length;
+    console.log(
+      `[inspect] enrichment done: success=${success}, fail=${fail}, cached=${cache.size}, with_float=${withFloat}, with_phase=${withPhase}`,
+    );
+    enrichmentRunning = false;
+  })();
+}
+
+export function enrichFromInspectLinks(items: EnrichableItem[]): number {
+  const merged = mergeInspectCache(items);
+  startBackgroundEnrichment(items);
+  return merged;
 }

@@ -265,7 +265,7 @@ function detectTradeLock(
 // ---------------------------------------------------------------------------
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function normalizeInventory(raw: any): NormalizedItem[] {
+export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedItem[] {
   // New format: { assets: [...], descriptions: [...] }
   // Old format: { rgInventory: { assetid: {...} }, rgDescriptions: { classid_instanceid: {...} } }
   let assets: any[] = [];
@@ -310,7 +310,7 @@ export function normalizeInventory(raw: any): NormalizedItem[] {
 
     const inspectRaw = extractInspectLink(desc.actions);
     const inspectLink = inspectRaw
-      ? inspectRaw.replace("%owner_steamid%", "0").replace("%assetid%", a.assetid ?? a.id)
+      ? inspectRaw.replace("%owner_steamid%", ownerSteamId ?? "0").replace("%assetid%", a.assetid ?? a.id)
       : null;
 
     const stickers = extractStickers(desc.descriptions);
@@ -556,7 +556,7 @@ export async function fetchOwnerInventory(): Promise<
 
   const result = await fetchSteamInventoryRaw(ownerSteamId, apiKey);
   if (!result.ok) return result;
-  return { ok: true, items: normalizeInventory(result.data) };
+  return { ok: true, items: normalizeInventory(result.data, ownerSteamId) };
 }
 
 export async function fetchGuestInventory(
@@ -568,5 +568,5 @@ export async function fetchGuestInventory(
   const steamId64 = steamId64FromPartner(parsed.partner);
   const result = await fetchSteamInventoryRaw(steamId64);
   if (!result.ok) return result;
-  return { ok: true, items: normalizeInventory(result.data) };
+  return { ok: true, items: normalizeInventory(result.data, steamId64) };
 }
