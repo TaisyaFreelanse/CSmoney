@@ -115,6 +115,7 @@ export default function TradePageClient({
   const [myItems, setMyItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tradeSubmitError, setTradeSubmitError] = useState<string | null>(null);
   const [tradeUrl, setTradeUrl] = useState("");
   const [hasTradeUrl, setHasTradeUrl] = useState(false);
   const [editingTradeUrl, setEditingTradeUrl] = useState(false);
@@ -212,6 +213,10 @@ export default function TradePageClient({
 
   // ------ cooldown ------
   useEffect(() => {
+    setTradeSubmitError(null);
+  }, [selectedMy, selectedOwner]);
+
+  useEffect(() => {
     if (ownerCooldown <= 0 && myCooldown <= 0) return;
     const t = setInterval(() => {
       setOwnerCooldown((v) => Math.max(0, v - 1));
@@ -258,7 +263,10 @@ export default function TradePageClient({
 
   // ------ submit trade ------
   const submitTrade = useCallback(async () => {
-    setError(null); setTradeSuccess(null); setSubmitting(true);
+    setError(null);
+    setTradeSubmitError(null);
+    setTradeSuccess(null);
+    setSubmitting(true);
     try {
       const res = await fetch("/api/trades", {
         method: "POST",
@@ -266,7 +274,10 @@ export default function TradePageClient({
         body: JSON.stringify({ guestItems: Array.from(selectedMy), ownerItems: Array.from(selectedOwner) }),
       });
       const data = await res.json().catch(() => null);
-      if (!res.ok) { setError(data?.message ?? data?.error ?? "Ошибка"); return; }
+      if (!res.ok) {
+        setTradeSubmitError(data?.message ?? data?.error ?? "Ошибка");
+        return;
+      }
       setTradeSuccess(`Заявка #${data.tradeId} создана!`);
       setSelectedMy(new Set()); setSelectedOwner(new Set());
       if (data.ownerTradeUrl) window.open(data.ownerTradeUrl, "_blank");
@@ -389,6 +400,11 @@ export default function TradePageClient({
 
       {/* Messages */}
       {error && <div className="bg-red-900/30 border-b border-red-800/40 px-5 py-2 text-sm text-red-400">{error}</div>}
+      {tradeSubmitError && (
+        <div className="border-b border-red-800/40 bg-red-950/40 px-5 py-2 text-sm text-red-300" role="alert">
+          {tradeSubmitError}
+        </div>
+      )}
       {tradeSuccess && <div className="bg-emerald-900/30 border-b border-emerald-800/40 px-5 py-2 text-sm text-emerald-400">{tradeSuccess}</div>}
 
       {/* 3-Column Layout */}

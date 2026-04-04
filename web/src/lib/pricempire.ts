@@ -137,6 +137,16 @@ export interface ResolvedPrice {
   belowThreshold: boolean;
 }
 
+/**
+ * Cents that count toward trade balance (must match trade UI: items with belowThreshold
+ * are excluded from "Вы отдаёте" / "Вы получаете" sums even though resolvePrice still
+ * returns a raw catalog cents value for display).
+ */
+export function centsCountedInTradeTotal(p: ResolvedPrice): number {
+  if (p.belowThreshold) return 0;
+  return p.priceUsd;
+}
+
 export async function resolvePrice(
   marketHashName: string,
   phaseLabel: string | null,

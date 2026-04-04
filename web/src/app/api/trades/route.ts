@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import { getCached } from "@/lib/inventory-cache";
-import { resolvePrice } from "@/lib/pricempire";
+import { centsCountedInTradeTotal, resolvePrice } from "@/lib/pricempire";
 import { fetchOwnerInventory, fetchGuestInventory } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 import { prisma } from "@/lib/prisma";
@@ -151,10 +151,19 @@ export async function POST(request: NextRequest) {
   };
 
   const tradeItems: TradeItemInput[] = [];
+  let guestTotalCents = 0;
+  let ownerTotalCents = 0;
 
   for (const id of guestAssetIds) {
     const item = guestMap.get(id)!;
     const price = await resolvePrice(item.marketHashName, item.phaseLabel, item.assetId, "guest");
+    if (price.source === "unavailable") {
+      return NextResponse.json(
+        { error: "price_unavailable", message: `Нет цены для предмета: ${item.name}` },
+        { status: 400 },
+      );
+    }
+    guestTotalCents += centsCountedInTradeTotal(price);
     tradeItems.push({
       side: "guest",
       marketHashName: item.marketHashName,
@@ -171,6 +180,13 @@ export async function POST(request: NextRequest) {
   for (const id of ownerAssetIds) {
     const item = ownerMap.get(id)!;
     const price = await resolvePrice(item.marketHashName, item.phaseLabel, item.assetId, "owner");
+    if (price.source === "unavailable") {
+      return NextResponse.json(
+        { error: "price_unavailable", message: `Нет цены для предмета: ${item.name}` },
+        { status: 400 },
+      );
+    }
+    ownerTotalCents += centsCountedInTradeTotal(price);
     tradeItems.push({
       side: "owner",
       marketHashName: item.marketHashName,
@@ -183,9 +199,6 @@ export async function POST(request: NextRequest) {
       priceUsd: price.priceUsd,
     });
   }
-
-  const guestTotalCents = tradeItems.filter((i) => i.side === "guest").reduce((s, i) => s + i.priceUsd, 0);
-  const ownerTotalCents = tradeItems.filter((i) => i.side === "owner").reduce((s, i) => s + i.priceUsd, 0);
   const balance = checkTradeBalance(guestTotalCents, ownerTotalCents);
   if (!balance.ok) {
     const payload: Record<string, unknown> = { error: balance.reason, message: balance.message };
