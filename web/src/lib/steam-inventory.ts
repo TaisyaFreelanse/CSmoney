@@ -292,18 +292,7 @@ export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedI
     descMap.set(`${d.classid}_${d.instanceid}`, d);
   }
 
-  if (assets.length > 0) {
-    const sa = assets[0];
-    const saKeys = Object.keys(sa);
-    const hasAP = "asset_properties" in sa;
-    console.log(`[steam-inv] asset sample keys: [${saKeys.join(",")}] has_asset_properties=${hasAP}`);
-    if (hasAP && Array.isArray(sa.asset_properties)) {
-      console.log(`[steam-inv] asset_properties[0]:`, JSON.stringify(sa.asset_properties.slice(0, 3)));
-    }
-  }
-
   const items: NormalizedItem[] = [];
-  let apHits = 0;
   for (const a of assets) {
     const desc = descMap.get(`${a.classid}_${a.instanceid}`);
     if (!desc) continue;
@@ -315,7 +304,6 @@ export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedI
     const itemName: string = desc.market_hash_name ?? desc.name ?? "";
 
     const { floatValue: apFloat, paintIndex } = extractFromAssetProperties(a.asset_properties);
-    if (apFloat != null || paintIndex != null) apHits++;
     const apPhase = phaseFromPaintIndex(paintIndex, itemName);
     const phase = apPhase ?? detectPhaseFromTagsDescs(desc.descriptions, desc.tags);
     const floatVal = apFloat ?? extractFloat(desc.descriptions);
@@ -347,9 +335,6 @@ export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedI
       marketable: desc.marketable === 1 || desc.marketable === true,
     });
   }
-  const wf = items.filter(i => i.floatValue != null).length;
-  const wp = items.filter(i => i.phaseLabel != null).length;
-  console.log(`[steam-inv] normalized ${items.length} items: ap_hits=${apHits}, float=${wf}, phase=${wp}`);
   return items;
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
