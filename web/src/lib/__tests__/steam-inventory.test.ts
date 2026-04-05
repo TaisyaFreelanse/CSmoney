@@ -172,7 +172,7 @@ describe("normalizeInventory — inspect link with Item Certificate", () => {
     const items = normalizeInventory(raw, "76561198000");
     expect(items).toHaveLength(1);
     expect(items[0].inspectLink).toBe(
-      "steam://rungame/730/76561202255233023/+csgo_econ_action_preview%207B68FB8EAD2B9C77A636B5BBA785",
+      "steam://run/730//+csgo_econ_action_preview%207B68FB8EAD2B9C77A636B5BBA785",
     );
   });
 

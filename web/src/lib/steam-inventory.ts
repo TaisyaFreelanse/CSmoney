@@ -127,7 +127,7 @@ function extractFromAssetProperties(
   return { floatValue, paintIndex, stringProps };
 }
 
-const INSPECT_PREFIX = "steam://rungame/730/76561202255233023/+csgo_econ_action_preview%20";
+const INSPECT_PREFIX = "steam://run/730//+csgo_econ_action_preview%20";
 
 /**
  * Build the inspect link for a CS2 item.
