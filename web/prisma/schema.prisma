@@ -99,3 +99,10 @@ model OwnerManualPrice {
   note          String?
   setAt         DateTime @default(now())
 }
+
+// Cached USD→FX rates from ExchangeRate-API (one row); refreshed by cron /api/fx-rates/sync
+model FxRatesSnapshot {
+  id        String   @id @default("singleton")
+  rates     Json // { "USD": 1, "EUR": 0.92, "RUB": 90, ... } — units per 1 USD
+  fetchedAt DateTime
+}

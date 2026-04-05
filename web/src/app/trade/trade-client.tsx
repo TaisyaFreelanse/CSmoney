@@ -16,6 +16,7 @@ import {
   fmtLockI18n,
   type LangCode,
 } from "@/lib/i18n";
+import { DEFAULT_FX_RATES, type SupportedFxCode } from "@/lib/fx-rates";
 
 import styles from "./page.module.css";
 
@@ -95,13 +96,13 @@ const SORT_KEYS = [
 const ITEMS_PER_PAGE = 30;
 
 const CURRENCIES = [
-  { code: "USD", symbol: "$", flag: "🇺🇸", rate: 1 },
-  { code: "EUR", symbol: "€", flag: "🇪🇺", rate: 0.92 },
-  { code: "RUB", symbol: "₽", flag: "🇷🇺", rate: 92 },
-  { code: "CNY", symbol: "¥", flag: "🇨🇳", rate: 7.25 },
-  { code: "UAH", symbol: "₴", flag: "🇺🇦", rate: 41.5 },
+  { code: "USD" as const, symbol: "$", flag: "🇺🇸", rate: DEFAULT_FX_RATES.USD },
+  { code: "EUR" as const, symbol: "€", flag: "🇪🇺", rate: DEFAULT_FX_RATES.EUR },
+  { code: "RUB" as const, symbol: "₽", flag: "🇷🇺", rate: DEFAULT_FX_RATES.RUB },
+  { code: "CNY" as const, symbol: "¥", flag: "🇨🇳", rate: DEFAULT_FX_RATES.CNY },
+  { code: "UAH" as const, symbol: "₴", flag: "🇺🇦", rate: DEFAULT_FX_RATES.UAH },
 ] as const;
-type CurrencyCode = (typeof CURRENCIES)[number]["code"];
+type CurrencyCode = SupportedFxCode;
 
 const LANGUAGES = [
   { code: "ru" as LangCode, label: "Русский", flag: "🇷🇺" },
@@ -109,9 +110,14 @@ const LANGUAGES = [
   { code: "zh" as LangCode, label: "中文", flag: "🇨🇳" },
 ] as const;
 
-function fmtPrice(cents: number, currencyCode: CurrencyCode = "USD") {
+function fmtPrice(
+  cents: number,
+  currencyCode: CurrencyCode = "USD",
+  ratesByCode: Record<CurrencyCode, number> = DEFAULT_FX_RATES,
+) {
   const cur = CURRENCIES.find((c) => c.code === currencyCode) ?? CURRENCIES[0];
-  const val = (cents / 100) * cur.rate;
+  const rate = ratesByCode[currencyCode] ?? cur.rate;
+  const val = (cents / 100) * rate;
   return `${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${cur.symbol}`;
 }
 
@@ -167,6 +173,7 @@ export default function TradePageClient({
     }
     return "USD";
   });
+  const [fxRatesByCode, setFxRatesByCode] = useState<Record<CurrencyCode, number>>(() => ({ ...DEFAULT_FX_RATES }));
   const [lang, setLang] = useState<LangCode>(() => {
     if (typeof window !== "undefined") {
       return (localStorage.getItem("chez_lang") as LangCode) || "ru";
@@ -179,7 +186,35 @@ export default function TradePageClient({
   useEffect(() => { localStorage.setItem("chez_currency", currency); }, [currency]);
   useEffect(() => { localStorage.setItem("chez_lang", lang); }, [lang]);
 
-  const fmt = useCallback((cents: number) => fmtPrice(cents, currency), [currency]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/fx-rates", { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { rates?: Partial<Record<CurrencyCode, number>> };
+        if (!data.rates || cancelled) return;
+        setFxRatesByCode((prev) => {
+          const next = { ...prev };
+          for (const c of CURRENCIES) {
+            const v = data.rates![c.code];
+            if (typeof v === "number" && Number.isFinite(v) && v > 0) next[c.code] = v;
+          }
+          return next;
+        });
+      } catch {
+        /* keep defaults */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const fmt = useCallback(
+    (cents: number) => fmtPrice(cents, currency, fxRatesByCode),
+    [currency, fxRatesByCode],
+  );
 
   // ------ loaders ------
   const loadOwner = useCallback(async () => {

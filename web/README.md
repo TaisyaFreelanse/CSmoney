@@ -20,6 +20,10 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 Copy `.env.example` to `.env` and set at least `DATABASE_URL` and `SESSION_SECRET` (≥16 characters). For production (Steam OpenID `return_to`), set `NEXT_PUBLIC_APP_URL` to your real public URL (e.g. `https://cheztrading.com`) with no trailing slash. **Never set `NEXT_PUBLIC_APP_URL` to `localhost` on Render** — Steam will redirect users to their own machine and login will fail. If you remove a bad value, the app can fall back to proxy headers and `RENDER_EXTERNAL_URL`. Optionally set `STEAM_WEB_API_KEY` to fill display name and avatar on login.
 
+If you use more than one hostname for the same app, set **`SITE_HOST_ALIASES`** (comma-separated hostnames, no scheme) to every **non-canonical** host. Middleware **308-redirects** those to `NEXT_PUBLIC_APP_URL` so the session cookie stays on one domain. Example: canonical `https://chez.trading` with `SITE_HOST_ALIASES=cheztrading.com,www.cheztrading.com`.
+
+**FX display currencies** (EUR, RUB, CNY, UAH on the trade page) use [ExchangeRate-API](https://www.exchangerate-api.com/) v6. Set **`EXCHANGE_RATE_API_KEY`** on the **web** service. The hourly Render cron (`scripts/sync-prices.mjs`) also calls **`/api/fx-rates/sync`**; the server only hits the external API when the cache is older than **`FX_RATES_MIN_SYNC_INTERVAL_HOURS`** (default 20), so free-tier monthly quotas stay safe. Run **`npx prisma migrate deploy`** after pulling the `FxRatesSnapshot` migration.
+
 To grant **admin** (`/admin`) without touching the database, set **`ADMIN_STEAM_IDS`** to a comma-separated list of Steam ID64 values (17 digits). On the next successful Steam login, matching users get `isAdmin: true` in the database (the flag stays even if you later remove the env var).
 
 Run migrations: `npx prisma migrate dev` (or `migrate deploy` in CI/production).
