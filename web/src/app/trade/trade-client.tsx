@@ -399,7 +399,7 @@ export default function TradePageClient({
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
+    <div className="scheme-dark flex h-screen flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-5 py-2.5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
@@ -471,7 +471,7 @@ export default function TradePageClient({
 
           {/* Content — each branch gets flex-1 + overflow-y-auto so it always fills the column */}
           {!isLoggedIn ? (
-            <div className="flex flex-1 flex-col items-center justify-start gap-4 overflow-y-auto px-6 pb-6 pt-4 text-center">
+            <div className="trade-scroll flex flex-1 flex-col items-center justify-start gap-4 overflow-y-auto px-6 pb-6 pt-4 text-center">
               <div className="text-5xl opacity-20">🎮</div>
               <p className="max-w-xs text-sm text-zinc-500">{t("loginPrompt", lang)}</p>
               <a href="/api/auth/steam" className="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
@@ -479,7 +479,7 @@ export default function TradePageClient({
               </a>
             </div>
           ) : !hasTradeUrl || editingTradeUrl ? (
-            <div className="flex-1 overflow-y-auto">
+            <div className="trade-scroll flex-1 overflow-y-auto">
               <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-600/20 text-2xl">🔗</div>
                 <h3 className="text-base font-bold text-zinc-100">
@@ -528,7 +528,7 @@ export default function TradePageClient({
                 tradeUrlAction={() => setEditingTradeUrl(true)}
                 lang={lang}
               />
-              <div className="flex-1 overflow-y-auto p-2">
+              <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden p-2">
                 <ItemGrid items={filterMy(myItems, mySearch, mySort)} side="guest" selected={selectedMy} onToggle={(id) => toggle(setSelectedMy, id)} fmt={fmt} lang={lang} />
               </div>
             </div>
@@ -536,7 +536,7 @@ export default function TradePageClient({
         </div>
 
         {/* ─── CENTER: Filters + Trade Summary ─── */}
-        <div className="flex w-[24%] min-w-[260px] flex-col bg-[#111113] overflow-y-auto">
+        <div className="trade-scroll flex w-[24%] min-w-[260px] flex-col overflow-y-auto overflow-x-hidden bg-[#111113]">
           <div className="flex flex-col gap-4 p-4">
             {/* Trade analysis */}
             <div className="grid grid-cols-2 gap-2">
@@ -708,7 +708,7 @@ export default function TradePageClient({
             refreshing={ownerRefreshing} cooldown={ownerCooldown}
             lang={lang}
           />
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden p-2">
                 <ItemGrid
                   items={filterOwner(ownerItems, ownerSearch, ownerSort)}
                   side="owner"
@@ -779,7 +779,7 @@ function SelectedStrip({
         </div>
         {total > 0 && <span className="shrink-0 text-sm font-bold text-amber-400">{fmtFn(total)}</span>}
       </div>
-      <div className="max-h-[min(240px,38vh)] overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]">
+      <div className="trade-scroll max-h-[min(240px,38vh)] overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]">
         {items.length === 0 ? (
           <p className="py-2 text-[11px] text-zinc-600">{isRight ? t("itemsNotSelected", l) : t("selectItemsForTrade", l)}</p>
         ) : (
