@@ -455,7 +455,7 @@ export default function TradePageClient({
       {/* 3-Column Layout */}
       <div className="flex flex-1 overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
-        <div className="flex w-[38%] min-w-0 flex-col border-r border-zinc-800/50">
+        <div className="flex min-h-0 w-[38%] min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
           <SelectedStrip
             label={t("youGive", lang)}
@@ -535,9 +535,9 @@ export default function TradePageClient({
           )}
         </div>
 
-        {/* ─── CENTER: Filters + Trade Summary ─── */}
-        <div className="trade-scroll flex w-[24%] min-w-[260px] flex-col overflow-y-auto overflow-x-hidden bg-[#111113]">
-          <div className="flex flex-col gap-4 p-4">
+        {/* ─── CENTER: Filters + Trade Summary (no scroll — only side item grids scroll) ─── */}
+        <div className="flex min-h-0 w-[24%] min-w-[260px] shrink-0 flex-col overflow-hidden overflow-x-hidden bg-[#111113]">
+          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
             {/* Trade analysis */}
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-center">
@@ -619,15 +619,15 @@ export default function TradePageClient({
 
             {/* Item Type Categories */}
             <div>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-zinc-400">
+              <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-zinc-400">
                 <span className="text-amber-500">◈</span> {t("itemType", lang)}
               </h4>
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-0.5">
                 {CATEGORY_KEYS.map((cat) => (
                   <button
                     key={cat.key}
                     onClick={() => setCategory(cat.key)}
-                    className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all ${
+                    className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all ${
                       category === cat.key
                         ? "bg-amber-600/20 text-amber-400 font-semibold border border-amber-600/40"
                         : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200 border border-transparent"
@@ -686,7 +686,7 @@ export default function TradePageClient({
         </div>
 
         {/* ─── RIGHT: Store Inventory ─── */}
-        <div className="flex w-[38%] min-w-0 flex-col border-l border-zinc-800/50">
+        <div className="flex min-h-0 w-[38%] min-w-0 flex-col border-l border-zinc-800/50">
           <SelectedStrip
             label={t("youGet", lang)}
             sublabel={t("platformInventory", lang)}
@@ -763,7 +763,7 @@ function SelectedStrip({
   fmt: (cents: number) => string; lang: LangCode;
 }) {
   return (
-    <div className="border-b border-zinc-800/50 bg-[#111113] px-4 py-3">
+    <div className="shrink-0 border-b border-zinc-800/50 bg-[#111113] px-4 py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -779,11 +779,16 @@ function SelectedStrip({
         </div>
         {total > 0 && <span className="shrink-0 text-sm font-bold text-amber-400">{fmtFn(total)}</span>}
       </div>
-      <div className="trade-scroll max-h-[min(240px,38vh)] overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]">
+      <div
+        className="trade-scroll h-[min(176px,30vh)] w-full shrink-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]"
+        onWheel={(e) => e.stopPropagation()}
+      >
         {items.length === 0 ? (
-          <p className="py-2 text-[11px] text-zinc-600">{isRight ? t("itemsNotSelected", l) : t("selectItemsForTrade", l)}</p>
+          <div className="flex h-full items-center justify-center px-1">
+            <p className="text-center text-[11px] text-zinc-600">{isRight ? t("itemsNotSelected", l) : t("selectItemsForTrade", l)}</p>
+          </div>
         ) : (
-          <div className="flex flex-wrap gap-2 py-0.5">
+          <div className="flex w-full flex-wrap content-start gap-2 py-0.5">
             {items.map((item) => (
               <div key={item.assetId} className="group relative" title={item.name}>
                 <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-0.5">
