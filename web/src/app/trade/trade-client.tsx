@@ -399,7 +399,7 @@ export default function TradePageClient({
   }
 
   return (
-    <div className="scheme-dark flex h-screen flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
+    <div className="scheme-dark flex h-screen min-w-0 flex-col overflow-x-hidden overflow-y-hidden bg-[#0d0d0f] text-zinc-100">
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-5 py-2.5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
@@ -452,10 +452,10 @@ export default function TradePageClient({
       )}
       {tradeSuccess && <div className="bg-emerald-900/30 border-b border-emerald-800/40 px-5 py-2 text-sm text-emerald-400">{tradeSuccess}</div>}
 
-      {/* 3-Column Layout */}
-      <div className="flex flex-1 overflow-hidden">
+      {/* 3-Column Layout — minmax(0,…) so columns shrink inside viewport (no horizontal clip at 100% zoom) */}
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,38%)_minmax(0,24%)_minmax(0,38%)] overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
-        <div className="flex min-h-0 w-[38%] min-w-0 flex-col border-r border-zinc-800/50">
+        <div className="flex min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
           <SelectedStrip
             label={t("youGive", lang)}
@@ -535,41 +535,41 @@ export default function TradePageClient({
           )}
         </div>
 
-        {/* ─── CENTER: Filters + Trade Summary (no scroll — only side item grids scroll) ─── */}
-        <div className="flex min-h-0 w-[24%] min-w-[260px] shrink-0 flex-col overflow-hidden overflow-x-hidden bg-[#111113]">
-          <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-3">
+        {/* ─── CENTER: compact, no internal scroll; fits viewport with side grids ─── */}
+        <div className="@container flex min-h-0 min-w-0 flex-col overflow-hidden bg-[#111113]">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2 py-2 sm:gap-2.5 sm:px-2.5 sm:py-2.5">
             {/* Trade analysis */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-center">
-                <div className="mb-0.5 text-[10px] text-zinc-500">{t("youGive", lang)}</div>
-                <p className="text-sm font-bold text-zinc-100">{fmt(myTotal)}</p>
+            <div className="grid min-w-0 grid-cols-2 gap-1.5">
+              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2 text-center">
+                <div className="mb-0.5 truncate text-[9px] text-zinc-500">{t("youGive", lang)}</div>
+                <p className="truncate text-xs font-bold tabular-nums text-zinc-100">{fmt(myTotal)}</p>
               </div>
-              <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3 text-center">
-                <div className="mb-0.5 text-[10px] text-zinc-500">{t("youGet", lang)}</div>
-                <p className="text-sm font-bold text-zinc-100">{fmt(ownerTotal)}</p>
+              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2 text-center">
+                <div className="mb-0.5 truncate text-[9px] text-zinc-500">{t("youGet", lang)}</div>
+                <p className="truncate text-xs font-bold tabular-nums text-zinc-100">{fmt(ownerTotal)}</p>
               </div>
             </div>
 
             {tradeBalance && !tradeBalance.ok && tradeSelectionReady ? (
               <div
-                className="flex gap-2 rounded-lg border border-amber-700/35 bg-zinc-900/90 px-3 py-2.5 text-[11px] leading-relaxed text-amber-100/95"
+                className="flex min-w-0 gap-1.5 rounded-lg border border-amber-700/35 bg-zinc-900/90 px-2 py-2 text-[10px] leading-snug text-amber-100/95"
                 role="alert"
               >
                 <span className="shrink-0 text-amber-500" aria-hidden>
                   ⚠
                 </span>
-                <p>{tradeBalance.message}</p>
+                <p className="min-w-0 break-words">{tradeBalance.message}</p>
               </div>
             ) : null}
 
-            {/* Overpay + Submit */}
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`text-[10px] font-semibold ${overpayWordColor}`}>{t("overpay", lang)}</span>
+            {/* Overpay + Submit — column in narrow center so text fits without horizontal clip */}
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <div className="@[240px]:flex-row flex min-w-0 flex-col gap-1.5 @[240px]:items-stretch">
+                <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-2 py-1.5">
+                  <div className="flex min-w-0 items-center justify-between gap-1">
+                    <span className={`shrink-0 text-[9px] font-semibold ${overpayWordColor}`}>{t("overpay", lang)}</span>
                     <span
-                      className={`text-xs font-bold tabular-nums ${
+                      className={`min-w-0 truncate text-right text-[10px] font-bold tabular-nums ${
                         overpayPct < 0
                           ? "text-orange-400"
                           : overpayPct > TRADE_MAX_OVERPAY_PERCENT
@@ -579,10 +579,10 @@ export default function TradePageClient({
                     >
                       {overpayPct > 0 ? "+" : ""}
                       {overpayPct.toFixed(1)}%
-                      <span className="ml-1 text-[9px] font-normal text-zinc-500">(0–{TRADE_MAX_OVERPAY_PERCENT}%)</span>
+                      <span className="ml-0.5 text-[8px] font-normal text-zinc-500">(0–{TRADE_MAX_OVERPAY_PERCENT}%)</span>
                     </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-800">
                     <div
                       className="h-full rounded-full transition-[width,background-color] duration-300"
                       style={{ width: `${overpayBarFillPct}%`, backgroundColor: overpayBarColor }}
@@ -593,7 +593,7 @@ export default function TradePageClient({
                   type="button"
                   onClick={submitTrade}
                   disabled={!canSubmit}
-                  className={`shrink-0 rounded-lg px-4 py-2.5 text-xs font-bold transition-all ${
+                  className={`w-full shrink-0 rounded-lg px-2 py-2 text-center text-[10px] font-bold leading-tight transition-all @[240px]:w-auto @[240px]:self-center @[240px]:px-3 @[240px]:py-2.5 @[240px]:text-xs ${
                     canSubmit
                       ? "bg-amber-600 text-white shadow-lg shadow-amber-600/20 hover:bg-amber-500 active:scale-[0.98]"
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
@@ -605,11 +605,11 @@ export default function TradePageClient({
             </div>
 
             {/* Market info (reference-style) */}
-            <div className="flex flex-col items-center gap-2.5" role="note">
-              <div className="w-full rounded-lg border border-amber-900/25 bg-[#0c0c0e] px-3.5 py-3 text-center text-[11px] font-medium leading-snug text-amber-500">
+            <div className="flex min-w-0 flex-col items-stretch gap-1.5" role="note">
+              <div className="w-full rounded-lg border border-amber-900/25 bg-[#0c0c0e] px-2 py-2 text-center text-[9px] font-medium leading-snug text-amber-500 sm:text-[10px]">
                 {t("marketWarning", lang)}
               </div>
-              <p className="w-full max-w-[260px] text-center text-[10px] leading-relaxed text-zinc-500">
+              <p className="w-full text-balance text-center text-[9px] leading-snug text-zinc-500 sm:text-[10px]">
                 {t("priceDisclaimer", lang)}
               </p>
             </div>
@@ -617,40 +617,44 @@ export default function TradePageClient({
             {/* Divider */}
             <div className="border-t border-zinc-800/50" />
 
-            {/* Item Type Categories */}
-            <div>
-              <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-zinc-400">
-                <span className="text-amber-500">◈</span> {t("itemType", lang)}
+            {/* Item Type Categories — 2 cols, truncate to avoid horizontal overflow */}
+            <div className="min-w-0">
+              <h4 className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-zinc-400 sm:text-xs">
+                <span className="shrink-0 text-amber-500">◈</span>
+                <span className="min-w-0 truncate">{t("itemType", lang)}</span>
               </h4>
-              <div className="flex flex-col gap-0.5">
+              <div className="grid min-w-0 grid-cols-2 gap-0.5">
                 {CATEGORY_KEYS.map((cat) => (
                   <button
                     key={cat.key}
+                    type="button"
                     onClick={() => setCategory(cat.key)}
-                    className={`flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all ${
+                    className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[9px] leading-tight transition-all sm:text-[10px] ${
                       category === cat.key
-                        ? "bg-amber-600/20 text-amber-400 font-semibold border border-amber-600/40"
-                        : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200 border border-transparent"
+                        ? "border border-amber-600/40 bg-amber-600/20 font-semibold text-amber-400"
+                        : "border border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
                     }`}
                   >
-                    <span className="text-sm">{cat.icon}</span>
-                    {t(cat.i18n, lang)}
-                    {category === cat.key && <span className="ml-auto h-2 w-2 rounded-full bg-amber-500" />}
+                    <span className="shrink-0 text-xs sm:text-sm">{cat.icon}</span>
+                    <span className="min-w-0 flex-1 truncate">{t(cat.i18n, lang)}</span>
+                    {category === cat.key && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />}
                   </button>
                 ))}
               </div>
             </div>
 
             {/* Wear filter */}
-            <div>
-              <h4 className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-zinc-400">
-                <span className="text-amber-500">◈</span> {t("wearLabel", lang)}
+            <div className="min-w-0">
+              <h4 className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-zinc-400 sm:text-xs">
+                <span className="shrink-0 text-amber-500">◈</span>
+                <span className="min-w-0 truncate">{t("wearLabel", lang)}</span>
               </h4>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex min-w-0 flex-wrap gap-0.5">
                 <button
+                  type="button"
                   onClick={() => setWear("All")}
-                  className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    wear === "All" ? "bg-amber-600/20 text-amber-400 border border-amber-600/40" : "text-zinc-500 hover:text-zinc-300 border border-zinc-800/60"
+                  className={`rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                    wear === "All" ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
                   }`}
                 >
                   {t("wearAll", lang)}
@@ -658,9 +662,10 @@ export default function TradePageClient({
                 {WEAR_LABELS.map((w) => (
                   <button
                     key={w}
+                    type="button"
                     onClick={() => setWear(w)}
-                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      wear === w ? "bg-amber-600/20 text-amber-400 border border-amber-600/40" : "text-zinc-500 hover:text-zinc-300 border border-zinc-800/60"
+                    className={`rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                      wear === w ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
                     }`}
                   >
                     {WEAR_SHORT[w]}
@@ -670,15 +675,15 @@ export default function TradePageClient({
             </div>
 
             {/* Requirements */}
-            <div className="rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-3">
+            <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2">
               {pendingRequirements > 0 ? (
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                <p className="mb-1 break-words text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
                   {requirementsHeading(pendingRequirements, lang)}
                 </p>
               ) : null}
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {requirementRows.map((row, idx) => (
-                  <ReqLine key={`req-${idx}`} done={row.done} text={row.text} issue={row.issue} />
+                  <ReqLine key={`req-${idx}`} done={row.done} text={row.text} issue={row.issue} compact />
                 ))}
               </div>
             </div>
@@ -686,7 +691,7 @@ export default function TradePageClient({
         </div>
 
         {/* ─── RIGHT: Store Inventory ─── */}
-        <div className="flex min-h-0 w-[38%] min-w-0 flex-col border-l border-zinc-800/50">
+        <div className="flex min-h-0 min-w-0 flex-col border-l border-zinc-800/50">
           <SelectedStrip
             label={t("youGet", lang)}
             sublabel={t("platformInventory", lang)}
@@ -723,28 +728,30 @@ export default function TradePageClient({
       </div>
 
       {/* Footer */}
-      <footer className="shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-6 py-6">
-        <div className="mx-auto flex max-w-6xl flex-col items-center gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-col items-center gap-1.5 sm:items-start">
+      <footer className="shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-3 py-3 sm:px-6 sm:py-5">
+        <div className="mx-auto flex min-w-0 max-w-6xl flex-col items-center gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="flex min-w-0 flex-col items-center gap-1 sm:items-start">
             <span className="text-sm font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-400">TRADING</span></span>
-            <p className="text-[11px] leading-relaxed text-zinc-600">
+            <p className="max-w-full text-balance text-center text-[10px] leading-relaxed text-zinc-600 sm:text-left sm:text-[11px]">
               © 2024–{new Date().getFullYear()} ChezTrading. {t("footerRights", lang)}
             </p>
           </div>
 
-          <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 text-[11px] text-zinc-600">
-            <span>{t("footerTos", lang)}</span>
-            <span>{t("footerPrivacy", lang)}</span>
-            <span>{t("footerCookies", lang)}</span>
+          <div className="flex min-w-0 max-w-full flex-wrap justify-center gap-x-3 gap-y-1.5 px-1 text-center text-[10px] text-zinc-600 sm:gap-x-5 sm:text-[11px]">
+            <span className="max-w-full shrink-0">{t("footerTos", lang)}</span>
+            <span className="max-w-full shrink-0">{t("footerPrivacy", lang)}</span>
+            <span className="max-w-full break-words">{t("footerCookies", lang)}</span>
           </div>
 
-          <div className="flex flex-col items-center gap-1.5 text-[11px] text-zinc-600 sm:items-end">
-            <p>Support: <span className="text-zinc-500">support@cheztrading.com</span></p>
+          <div className="flex min-w-0 flex-col items-center gap-1 text-[10px] text-zinc-600 sm:items-end sm:text-[11px]">
+            <p className="max-w-full break-all text-center sm:text-right">
+              Support: <span className="text-zinc-500">support@cheztrading.com</span>
+            </p>
           </div>
         </div>
 
-        <div className="mx-auto mt-4 max-w-6xl border-t border-zinc-800/40 pt-3 text-center text-[10px] leading-relaxed text-zinc-700">
-          {t("footerValve", lang)}
+        <div className="mx-auto mt-3 max-w-6xl min-w-0 border-t border-zinc-800/40 px-1 pt-2 text-center text-[9px] leading-snug text-zinc-700 sm:mt-4 sm:pt-3 sm:text-[10px]">
+          <span className="text-balance">{t("footerValve", lang)}</span>
         </div>
       </footer>
     </div>
@@ -907,11 +914,13 @@ function LangCurrencyPicker({
 // Requirement line
 // ---------------------------------------------------------------------------
 
-function ReqLine({ done, text, issue }: { done: boolean; text: string; issue?: boolean }) {
+function ReqLine({ done, text, issue, compact }: { done: boolean; text: string; issue?: boolean; compact?: boolean }) {
   return (
-    <div className="flex items-start gap-2 text-xs">
+    <div className={`flex items-start gap-1.5 ${compact ? "text-[10px] leading-snug" : "text-xs"}`}>
       <span
-        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+        className={`mt-0.5 flex shrink-0 items-center justify-center rounded-full font-bold ${
+          compact ? "h-3.5 w-3.5 text-[8px]" : "h-4 w-4 text-[9px]"
+        } ${
           done
             ? "bg-emerald-600 text-white"
             : issue
@@ -921,7 +930,11 @@ function ReqLine({ done, text, issue }: { done: boolean; text: string; issue?: b
       >
         {done ? "✓" : issue ? "−" : "+"}
       </span>
-      <span className={done ? "text-zinc-400 line-through" : issue ? "text-red-300/90" : "text-zinc-400"}>{text}</span>
+      <span
+        className={`min-w-0 break-words ${done ? "text-zinc-400 line-through" : issue ? "text-red-300/90" : "text-zinc-400"}`}
+      >
+        {text}
+      </span>
     </div>
   );
 }
