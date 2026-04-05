@@ -544,9 +544,9 @@ export default function TradePageClient({
           )}
         </div>
 
-        {/* ─── CENTER: full column height to footer; no internal scroll ─── */}
-        <div className="@container flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#111113]">
-          <div className="flex h-full min-h-0 flex-1 flex-col gap-2 overflow-hidden px-2 py-2 sm:gap-2.5 sm:px-2.5 sm:py-2.5">
+        {/* ─── CENTER: stretches full height to footer ─── */}
+        <div className="@container flex min-w-0 flex-col bg-[#111113]">
+          <div className="flex flex-1 flex-col gap-2 px-2 py-2 sm:gap-2.5 sm:px-2.5 sm:py-2.5">
             {/* Trade analysis */}
             <div className="grid min-w-0 grid-cols-2 gap-1.5">
               <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2 text-center">
@@ -697,8 +697,8 @@ export default function TradePageClient({
               </div>
             </div>
 
-            {/* Fills space down to footer so the center strip matches side column height */}
-            <div className="min-h-0 flex-1 bg-[#0d0d0f]/40" aria-hidden />
+            {/* Fills remaining space down to footer */}
+            <div className="flex-1" aria-hidden />
           </div>
         </div>
 
