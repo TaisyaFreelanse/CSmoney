@@ -1498,19 +1498,21 @@ function ItemGridSkeleton({ lang: l }: { lang: LangCode }) {
       className="space-y-2"
     >
       <span className="sr-only">{t("loading", l)}</span>
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 sm:gap-1.5 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-0.5 sm:grid-cols-3 sm:gap-1 lg:grid-cols-4 xl:grid-cols-5">
         {Array.from({ length: SKELETON_CARD_COUNT }, (_, i) => (
           <div
             key={i}
-            className="flex min-h-[228px] flex-col rounded-xl border border-zinc-800/40 bg-zinc-900/35 p-2 sm:min-h-[236px]"
+            className="flex aspect-square w-full min-w-0 flex-col overflow-hidden rounded-lg border border-zinc-800/40 bg-zinc-900/35"
             style={{ animationDelay: `${i * 45}ms` }}
           >
-            <div className="mx-auto h-3 w-[85%] max-w-[160px] animate-pulse rounded bg-zinc-800/70" />
-            <div className="mx-auto mt-2 h-3.5 w-[45%] animate-pulse rounded-full bg-zinc-800/50" />
-            <div className="flex flex-1 items-center justify-center py-3">
-              <div className="h-16 w-16 animate-pulse rounded-lg bg-zinc-800/55 sm:h-[72px] sm:w-[72px]" />
+            <div className="flex min-h-0 flex-[7] items-center justify-center p-1">
+              <div className="h-[70%] w-[70%] max-h-[120px] max-w-[120px] animate-pulse rounded-md bg-zinc-800/55" />
             </div>
-            <div className="mx-auto h-3 w-[55%] animate-pulse rounded bg-zinc-800/65" />
+            <div className="flex min-h-0 flex-[3] flex-col justify-end gap-0.5 px-1.5 pb-1.5 pt-0">
+              <div className="h-2 w-full animate-pulse rounded bg-zinc-800/70" />
+              <div className="h-1.5 w-2/3 animate-pulse rounded bg-zinc-800/60" />
+              <div className="h-2.5 w-1/2 animate-pulse rounded bg-zinc-800/65" />
+            </div>
           </div>
         ))}
       </div>
@@ -1582,7 +1584,7 @@ function ItemGrid({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 sm:gap-1.5 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-0.5 sm:grid-cols-3 sm:gap-1 lg:grid-cols-4 xl:grid-cols-5">
         {visible.map((item) => (
           <ItemCard
             key={itemGridRowKey(item, side)}
@@ -1632,11 +1634,11 @@ function InspectInGameButton({ href, lang: l }: { href: string; lang: LangCode }
       href={href}
       title={t("inspectInCs2", l)}
       aria-label={t("inspectInCs2", l)}
-      className="absolute bottom-1 right-1 z-[25] flex h-7 w-8 items-center justify-center rounded-full border border-red-950/60 bg-[#2a1518]/95 text-zinc-200 shadow-md backdrop-blur-[2px] transition-colors hover:border-amber-900/40 hover:bg-[#331a1d] hover:text-white"
+      className="absolute right-0.5 top-0.5 z-[25] flex h-6 w-6 items-center justify-center rounded-md border border-red-950/60 bg-[#2a1518]/90 text-zinc-200 shadow-sm backdrop-blur-[2px] transition-colors hover:border-amber-900/40 hover:bg-[#331a1d] hover:text-white"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" aria-hidden>
         <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="1.75" />
         <path d="M14.2 14.2L20 20" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
         <path d="M10 7.25v5.5M7.25 10h5.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -1684,74 +1686,37 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
             }
           : undefined
       }
-      className={`group relative flex h-full min-h-[228px] flex-col overflow-visible rounded-xl border transition-all sm:min-h-[236px] ${
+      className={`group relative flex aspect-square w-full min-w-0 flex-col overflow-visible rounded-lg border transition-[border-color,box-shadow,background-color] duration-150 ${
         manualLocked
           ? "cursor-not-allowed border-zinc-700/45 bg-zinc-900/80 opacity-[0.62] contrast-[0.92] [filter:grayscale(32%)] focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50"
           : cannotSelect
             ? "border-zinc-800/40 bg-zinc-900/40 opacity-50"
             : isSelected
-              ? "border-amber-500/60 bg-zinc-800/80 ring-1 ring-amber-500/40 cursor-pointer"
-              : "border-zinc-800/40 bg-zinc-900/60 hover:border-zinc-700/60 hover:bg-zinc-800/60 cursor-pointer"
+              ? "border-amber-500/60 bg-zinc-800/80 shadow-[0_0_0_1px_rgba(245,158,11,0.35)] cursor-pointer"
+              : "border-zinc-800/40 bg-zinc-900/60 hover:border-zinc-600/55 hover:bg-zinc-800/55 hover:shadow-md cursor-pointer"
       }`}
     >
       {isSelected && (
-        <div className="absolute left-1.5 top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] font-bold text-black">✓</div>
+        <div className="absolute left-1 top-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[7px] font-bold text-black shadow-sm">
+          ✓
+        </div>
       )}
 
-      {/* Top: Name + Wear */}
-      <div className="shrink-0 flex flex-col items-center gap-1 px-2 pt-2">
-        <p className="w-full truncate text-center text-[11px] font-semibold leading-tight" style={{ color: nameColor }}>
-          {item.name}
-        </p>
-        {item.wear && (
-          <span className="rounded-full bg-zinc-800/80 px-2 py-0.5 text-[9px] font-medium text-zinc-400">
-            {item.wear}
-          </span>
-        )}
-        {manualLocked ? (
-          <p className="line-clamp-2 w-full px-0.5 text-center text-[9px] leading-snug text-orange-200/85">
-            {lockedManualCardSubtitle(item, l)}
-          </p>
-        ) : null}
-        {showAssetId ? (
-          <div
-            className="flex w-full max-w-full items-center gap-1 px-0.5"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            <span className="min-w-0 flex-1 truncate text-center font-mono text-[8px] leading-tight text-amber-600/90" title={item.assetId}>
-              {item.assetId}
-            </span>
-            <button
-              type="button"
-              className="shrink-0 rounded border border-amber-800/40 bg-zinc-900/90 px-1 py-0.5 text-[8px] font-medium text-amber-500/90 hover:bg-zinc-800"
-              onClick={async (e) => {
-                e.stopPropagation();
-                try {
-                  await navigator.clipboard.writeText(item.assetId);
-                  setAssetCopied(true);
-                  window.setTimeout(() => setAssetCopied(false), 1200);
-                } catch {
-                  /* ignore */
-                }
-              }}
-            >
-              {assetCopied ? "✓" : t("copy", l)}
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      {/* Image area — grows so footer aligns across the row */}
-      <div className="relative flex min-h-[76px] flex-1 items-center justify-center px-1.5 py-1.5 sm:min-h-[84px] sm:px-2 sm:py-2">
+      {/* Image ~70% — main visual */}
+      <div className="relative flex min-h-0 flex-[7] items-center justify-center overflow-visible p-1">
         {isUnavailable ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={item.iconUrl} alt="" className="h-[64px] w-[64px] object-contain blur-sm opacity-40 sm:h-[72px] sm:w-[72px]" loading="lazy" />
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
-              <span className="text-base text-zinc-500">ⓘ</span>
-              <span className="text-[10px] font-semibold uppercase text-amber-600">UNAVAILABLE</span>
-              <span className="text-[8px] text-zinc-500">(Unstable Price)</span>
+            <img
+              src={item.iconUrl}
+              alt=""
+              className="max-h-[92%] max-w-[92%] object-contain blur-sm opacity-40"
+              loading="lazy"
+            />
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-px px-1 text-center">
+              <span className="text-sm text-zinc-500">ⓘ</span>
+              <span className="text-[8px] font-semibold uppercase leading-tight text-amber-600">UNAVAILABLE</span>
+              <span className="text-[7px] leading-tight text-zinc-500">(Unstable)</span>
             </div>
           </>
         ) : (
@@ -1759,13 +1724,24 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           <img
             src={item.iconUrl}
             alt={item.name}
-            className={`h-[64px] w-[64px] object-contain sm:h-[72px] sm:w-[72px] ${manualLocked ? "" : "transition-transform group-hover:scale-105"}`}
+            className={`max-h-[92%] max-w-[92%] object-contain ${manualLocked ? "" : "transition-transform duration-150 group-hover:scale-[1.03]"}`}
             loading="lazy"
           />
         )}
 
+        {/* Hover overlay: extra meta without permanent vertical clutter */}
+        <div className="pointer-events-none absolute inset-0 rounded-md bg-gradient-to-t from-zinc-950/85 via-zinc-950/20 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] px-1 pb-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+          <p className="line-clamp-2 text-center text-[8px] leading-snug text-zinc-100 drop-shadow-md" style={{ color: nameColor }}>
+            {item.name}
+          </p>
+          {item.wear ? (
+            <p className="mt-0.5 truncate text-center text-[7px] text-zinc-300/95">{item.wear}</p>
+          ) : null}
+        </div>
+
         {isLocked && (
-          <div className="absolute right-1 top-1 flex max-w-[calc(100%-8px)] items-center gap-0.5 rounded bg-orange-700/80 px-1 py-0.5 text-[8px] font-medium text-orange-100">
+          <div className="absolute left-0.5 top-0.5 z-20 flex max-w-[calc(100%-2rem)] items-center gap-0.5 rounded bg-orange-800/90 px-1 py-px text-[7px] font-medium text-orange-50 shadow-sm backdrop-blur-[2px]">
             <span className="shrink-0" aria-hidden>
               🔒
             </span>
@@ -1786,30 +1762,30 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         {item.inspectLink ? <InspectInGameButton href={item.inspectLink} lang={l} /> : null}
 
         {item.stickers.length > 0 && (
-          <div className="group/stickers absolute bottom-1 left-1 z-20 max-w-[calc(100%-4px)]">
+          <div className="group/stickers absolute bottom-0.5 left-0.5 z-20 max-w-[calc(100%-0.5rem)]">
             <div
-              className="flex flex-wrap gap-0.5"
+              className="flex flex-wrap gap-px"
               aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
             >
-              {item.stickers.slice(0, 5).map((s, i) => (
+              {item.stickers.slice(0, 4).map((s, i) => (
                 /* eslint-disable-next-line @next/next/no-img-element */
                 <img
                   key={i}
                   src={s.iconUrl}
                   alt=""
-                  className="h-[18px] w-[18px] rounded-sm border border-zinc-700/40 bg-zinc-900/80 object-contain drop-shadow"
+                  className="h-3.5 w-3.5 rounded border border-zinc-700/50 bg-zinc-900/90 object-contain shadow-sm"
                   loading="lazy"
                 />
               ))}
-              {item.stickers.length > 5 && (
-                <span className="self-center text-[8px] text-zinc-500">+{item.stickers.length - 5}</span>
+              {item.stickers.length > 4 && (
+                <span className="self-center text-[7px] leading-none text-zinc-400">+{item.stickers.length - 4}</span>
               )}
             </div>
-            <div className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-1 w-max max-w-[min(240px,calc(100vw-32px))] rounded-md border border-zinc-600/90 bg-zinc-950 px-2 py-1.5 text-left text-[9px] leading-snug text-zinc-100 shadow-xl opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
-              <p className="mb-1 text-[8px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
-              <ul className="list-none space-y-1">
+            <div className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-0.5 w-max max-w-[min(220px,calc(100vw-32px))] rounded border border-zinc-600/90 bg-zinc-950 px-1.5 py-1 text-left text-[8px] leading-snug text-zinc-100 shadow-lg opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
+              <p className="mb-0.5 text-[7px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
+              <ul className="list-none space-y-0.5">
                 {item.stickers.map((s, i) => (
-                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-1 last:border-0 last:pb-0">
+                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-0.5 last:border-0 last:pb-0">
                     {stickerLabel(s, i, l)}
                   </li>
                 ))}
@@ -1819,38 +1795,82 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         )}
       </div>
 
-      {/* Footer: fixed slots so float bars and prices line up in a grid row */}
-      <div className="relative mt-auto flex w-full shrink-0 flex-col gap-0.5 px-2 pb-2 pt-0.5">
-        <div className="flex min-h-[18px] items-center justify-center">
+      {/* Compact meta ~30% */}
+      <div className="relative flex min-h-0 flex-[3] flex-col justify-end gap-px px-1.5 pb-1 pt-0">
+        <p className="w-full truncate text-center text-[9px] font-semibold leading-tight text-zinc-100" style={{ color: nameColor }}>
+          {item.name}
+        </p>
+        <div className="flex min-h-[14px] items-center justify-center gap-1">
+          {item.wear ? (
+            <span className="max-w-[45%] truncate rounded bg-zinc-800/90 px-1 py-px text-[7px] font-medium text-zinc-400">
+              {item.wear}
+            </span>
+          ) : null}
           {item.phaseLabel ? (
-            <p className={`text-center text-[11px] font-bold leading-tight ${phaseTextColor(item.phaseLabel)}`}>
+            <span className={`max-w-[55%] truncate text-[8px] font-bold leading-none ${phaseTextColor(item.phaseLabel)}`}>
               {item.phaseLabel}
-            </p>
+            </span>
           ) : null}
         </div>
+        {manualLocked ? (
+          <p className="line-clamp-1 w-full text-center text-[7px] leading-tight text-orange-200/90" title={lockedManualCardSubtitle(item, l)}>
+            {lockedManualCardSubtitle(item, l)}
+          </p>
+        ) : null}
+        {showAssetId ? (
+          <div
+            className="flex w-full max-w-full items-center gap-0.5"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <span className="min-w-0 flex-1 truncate text-center font-mono text-[7px] leading-tight text-amber-600/90" title={item.assetId}>
+              {item.assetId}
+            </span>
+            <button
+              type="button"
+              className="shrink-0 rounded border border-amber-800/40 bg-zinc-900/90 px-0.5 py-px text-[7px] font-medium text-amber-500/90 hover:bg-zinc-800"
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await navigator.clipboard.writeText(item.assetId);
+                  setAssetCopied(true);
+                  window.setTimeout(() => setAssetCopied(false), 1200);
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              {assetCopied ? "✓" : t("copy", l)}
+            </button>
+          </div>
+        ) : null}
 
-        <div className="flex min-h-[34px] flex-col justify-end">
-          {item.floatValue != null ? (
-            <>
-              <p className="text-[10px] leading-tight text-zinc-400">
-                Float: <span className="font-medium text-zinc-200">{item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}</span>
-              </p>
-              <div className="mt-0.5 h-1 w-full shrink-0 overflow-hidden rounded-full bg-zinc-800">
-                <div className="h-full rounded-full" style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }} />
-              </div>
-            </>
-          ) : (
-            <div className="h-[34px] shrink-0" aria-hidden />
-          )}
-        </div>
+        {item.floatValue != null ? (
+          <div className="flex flex-col gap-px">
+            <p className="text-[8px] leading-none text-zinc-500">
+              F{" "}
+              <span className="font-mono font-medium text-zinc-300">{item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}</span>
+            </p>
+            <div className="h-0.5 w-full shrink-0 overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="h-0.5 shrink-0" aria-hidden />
+        )}
 
-        <div className="flex min-h-[22px] items-end justify-between">
+        <div className="flex items-end justify-between gap-1 pt-px">
           {item.priceSource === "unavailable" || isUnavailable ? (
-            <span className="text-[10px] text-zinc-600">—</span>
+            <span className="text-[9px] text-zinc-600">—</span>
           ) : (
-            <span className="text-[13px] font-bold leading-none text-amber-400">{fmtFn(item.priceUsd)}</span>
+            <span className="truncate text-[11px] font-bold tabular-nums leading-none text-amber-400">{fmtFn(item.priceUsd)}</span>
           )}
-          {item.priceSource === "manual" && showAssetId && <span className="text-[8px] text-amber-700">manual</span>}
+          {item.priceSource === "manual" && showAssetId ? (
+            <span className="shrink-0 text-[7px] text-amber-700">man.</span>
+          ) : null}
         </div>
 
         {item.rarityColor && <RarityBar color={item.rarityColor} />}

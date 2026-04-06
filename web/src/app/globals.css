@@ -65,14 +65,14 @@ body {
 }
 
 /*
- * Left/right trade inventories: cap height to ~6 grid rows (ItemCard min-h + grid gap),
+ * Left/right trade inventories: cap height to ~6 grid rows (compact square ItemCard + gap),
  * then scroll inside. Capped by 72dvh so short viewports don’t grow the page.
- * Card min-heights match trade-client.tsx ItemCard (228px / 236px sm+).
+ * Approx. row ≈ column width (aspect-square cards) — use ~148px baseline for scroll cap.
  */
 .trade-inventory-scroll {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(72dvh, calc(6 * (228px + 0.25rem) - 0.25rem));
+  max-height: min(72dvh, calc(6 * (148px + 0.125rem) - 0.125rem));
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
@@ -80,6 +80,6 @@ body {
 
 @media (min-width: 640px) {
   .trade-inventory-scroll {
-    max-height: min(72dvh, calc(6 * (236px + 0.375rem) - 0.375rem));
+    max-height: min(72dvh, calc(6 * (152px + 0.25rem) - 0.25rem));
   }
 }
