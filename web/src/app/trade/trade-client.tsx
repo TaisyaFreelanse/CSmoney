@@ -1662,6 +1662,9 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
 
   const nameColor = item.rarityColor ?? "#e4e4e7";
   const cardTitle = manualLocked ? lockedManualItemNativeTitle(item, l) : item.name;
+  /** Top sticker strip: clear lock / selection check / inspect (right-8). */
+  const stickerStripLeftClass =
+    isLocked && isSelected ? "left-[3.35rem]" : isLocked ? "left-[2.55rem]" : isSelected ? "left-5" : "left-0.5";
 
   return (
     <div
@@ -1729,6 +1732,44 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           />
         )}
 
+        {/* Stickers: top strip beside inspect (do not cover weapon). */}
+        {item.stickers.length > 0 ? (
+          <div
+            className={`group/stickers pointer-events-auto absolute top-0.5 z-[44] min-w-0 pr-0.5 ${stickerStripLeftClass} right-8`}
+          >
+            <div
+              className="flex max-w-full flex-nowrap items-center justify-start gap-0.5 overflow-hidden rounded-md bg-zinc-950/90 px-0.5 py-0.5 shadow-md ring-1 ring-black/45"
+              aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
+            >
+              {item.stickers.slice(0, 5).map((s, i) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={i}
+                  src={s.iconUrl}
+                  alt=""
+                  className="size-[18px] shrink-0 rounded border border-zinc-600/60 bg-zinc-900 object-contain shadow-sm"
+                  loading="lazy"
+                />
+              ))}
+              {item.stickers.length > 5 && (
+                <span className="shrink-0 self-center pl-px text-[7px] font-medium leading-none text-zinc-400">
+                  +{item.stickers.length - 5}
+                </span>
+              )}
+            </div>
+            <div className="pointer-events-none invisible absolute left-0 top-full z-[60] mt-1 w-max max-w-[min(240px,calc(100vw-32px))] rounded-md border border-zinc-600/90 bg-zinc-950 px-2 py-1.5 text-left text-[8px] leading-snug text-zinc-100 shadow-xl opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
+              <p className="mb-1 text-[7px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
+              <ul className="list-none space-y-1">
+                {item.stickers.map((s, i) => (
+                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-1 last:border-0 last:pb-0">
+                    {stickerLabel(s, i, l)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        ) : null}
+
         {/* Hover: full name + wear only (float track stays in footer — avoids duplicate bars). */}
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 z-[22] rounded-b-md bg-gradient-to-t from-zinc-950/95 via-zinc-950/75 to-transparent opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100"
@@ -1771,7 +1812,7 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         {item.inspectLink ? <InspectInGameButton href={item.inspectLink} lang={l} /> : null}
       </div>
 
-      {/* Footer ~30% — stickers → name+phase (one block, hover hides) → float track → price */}
+      {/* Footer ~30% — name+phase (hover hides) → float track → price */}
       <div className="relative flex min-h-0 flex-[3] flex-col justify-end gap-1 px-1.5 pb-1 pt-0.5">
         {manualLocked ? (
           <p
@@ -1806,39 +1847,6 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
             >
               {assetCopied ? "✓" : t("copy", l)}
             </button>
-          </div>
-        ) : null}
-
-        {item.stickers.length > 0 ? (
-          <div className="group/stickers relative flex w-full min-w-0 justify-center">
-            <div
-              className="flex max-w-full flex-nowrap items-center justify-center gap-0.5 overflow-hidden rounded-md bg-zinc-950/85 px-1 py-0.5 shadow-md ring-1 ring-black/50"
-              aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
-            >
-              {item.stickers.slice(0, 5).map((s, i) => (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  key={i}
-                  src={s.iconUrl}
-                  alt=""
-                  className="size-5 shrink-0 rounded border border-zinc-600/60 bg-zinc-900 object-contain shadow-sm"
-                  loading="lazy"
-                />
-              ))}
-              {item.stickers.length > 5 && (
-                <span className="shrink-0 self-center pl-0.5 text-[8px] font-medium leading-none text-zinc-400">+{item.stickers.length - 5}</span>
-              )}
-            </div>
-            <div className="pointer-events-none invisible absolute bottom-full left-1/2 z-[60] mb-1 w-max max-w-[min(240px,calc(100vw-32px))] -translate-x-1/2 rounded-md border border-zinc-600/90 bg-zinc-950 px-2 py-1.5 text-left text-[8px] leading-snug text-zinc-100 shadow-xl opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
-              <p className="mb-1 text-[7px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
-              <ul className="list-none space-y-1">
-                {item.stickers.map((s, i) => (
-                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-1 last:border-0 last:pb-0">
-                    {stickerLabel(s, i, l)}
-                  </li>
-                ))}
-              </ul>
-            </div>
           </div>
         ) : null}
 
