@@ -107,8 +107,8 @@ const T: Translations = {
   loadingItems: { ru: "Загрузка...", en: "Loading...", zh: "加载中..." },
   allItemsLoaded: { ru: "Все предметы загружены", en: "All items loaded", zh: "所有物品已加载" },
 
-  itemsNotSelected: { ru: "Предметы не выбраны", en: "No items selected", zh: "未选择物品" },
-  selectItemsForTrade: { ru: "Выберите предметы для обмена", en: "Select items to trade", zh: "选择要交易的物品" },
+  itemsNotSelected: { ru: "Не выбрано", en: "None", zh: "未选" },
+  selectItemsForTrade: { ru: "Выберите предметы", en: "Select items", zh: "选择物品" },
   stickers: { ru: "Наклейки", en: "Stickers", zh: "贴纸" },
   stickerN: { ru: "Наклейка", en: "Sticker", zh: "贴纸" },
   inspectInCs2: { ru: "Осмотреть в CS2", en: "Inspect in CS2", zh: "在CS2中检查" },

@@ -499,7 +499,7 @@ export default function TradePageClient({
   return (
     <div className="scheme-dark flex h-screen min-w-0 flex-col overflow-x-hidden overflow-y-hidden bg-[#0d0d0f] text-zinc-100">
       {/* Header */}
-      <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-5 py-2.5">
+      <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-4 py-2 sm:px-5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
         <nav className="flex items-center gap-5 text-sm text-zinc-500">
           <span className="text-amber-500/90">{t("cs2Trade", lang)}</span>
@@ -560,7 +560,7 @@ export default function TradePageClient({
       {tradeSuccess && <div className="bg-emerald-900/30 border-b border-emerald-800/40 px-5 py-2 text-sm text-emerald-400">{tradeSuccess}</div>}
 
       {/* 3-Column Layout — 1fr row fills flex-1 height (auto row was content-sized; center column stayed short) */}
-      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,38%)_minmax(0,24%)_minmax(0,38%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
+      <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
         <div className="flex min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
@@ -635,7 +635,7 @@ export default function TradePageClient({
                 tradeUrlAction={() => setEditingTradeUrl(true)}
                 lang={lang}
               />
-              <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden p-2">
+              <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1 sm:px-2 sm:py-1.5">
                 <ItemGrid items={filterMy(myItems, mySearch, mySort)} side="guest" selected={selectedMy} onToggle={(id) => toggle(setSelectedMy, id)} fmt={fmt} lang={lang} />
               </div>
             </div>
@@ -644,22 +644,22 @@ export default function TradePageClient({
 
         {/* ─── CENTER: h-full so inner flex-1 consumes full grid cell (same height as side columns) ─── */}
         <div className="@container flex h-full min-h-0 min-w-0 flex-col bg-[#111113]">
-          <div className="flex min-h-0 flex-1 flex-col gap-2 px-2 py-2 sm:gap-2.5 sm:px-2.5 sm:py-2.5">
+          <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-1.5 py-1.5 sm:gap-2 sm:px-2 sm:py-2">
             {/* Trade analysis */}
-            <div className="grid min-w-0 grid-cols-2 gap-1.5">
-              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2 text-center">
-                <div className="mb-0.5 truncate text-[9px] text-zinc-500">{t("youGive", lang)}</div>
-                <p className="truncate text-xs font-bold tabular-nums text-zinc-100">{fmt(myTotal)}</p>
+            <div className="grid min-w-0 grid-cols-2 gap-1">
+              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1 text-center">
+                <div className="mb-px truncate text-[8px] text-zinc-500 sm:text-[9px]">{t("youGive", lang)}</div>
+                <p className="truncate text-[11px] font-bold tabular-nums text-zinc-100 sm:text-xs">{fmt(myTotal)}</p>
               </div>
-              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2 text-center">
-                <div className="mb-0.5 truncate text-[9px] text-zinc-500">{t("youGet", lang)}</div>
-                <p className="truncate text-xs font-bold tabular-nums text-zinc-100">{fmt(ownerTotal)}</p>
+              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1 text-center">
+                <div className="mb-px truncate text-[8px] text-zinc-500 sm:text-[9px]">{t("youGet", lang)}</div>
+                <p className="truncate text-[11px] font-bold tabular-nums text-zinc-100 sm:text-xs">{fmt(ownerTotal)}</p>
               </div>
             </div>
 
             {tradeBalanceAlertText && tradeSelectionReady ? (
               <div
-                className="flex min-w-0 gap-1.5 rounded-lg border border-amber-700/35 bg-zinc-900/90 px-2 py-2 text-[10px] leading-snug text-amber-100/95"
+                className="flex min-w-0 gap-1 rounded-lg border border-amber-700/35 bg-zinc-900/90 px-1.5 py-1.5 text-[9px] leading-snug text-amber-100/95 sm:text-[10px]"
                 role="alert"
               >
                 <span className="shrink-0 text-amber-500" aria-hidden>
@@ -670,9 +670,9 @@ export default function TradePageClient({
             ) : null}
 
             {/* Overpay + Submit — column in narrow center so text fits without horizontal clip */}
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <div className="@[240px]:flex-row flex min-w-0 flex-col gap-1.5 @[240px]:items-stretch">
-                <div className="flex min-w-0 flex-1 flex-col gap-1 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-2 py-1.5">
+            <div className="flex min-w-0 flex-col gap-1">
+              <div className="@[240px]:flex-row flex min-w-0 flex-col gap-1 @[240px]:items-stretch">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1">
                   <div className="flex min-w-0 items-center justify-between gap-1">
                     <span className={`shrink-0 text-[9px] font-semibold ${overpayWordColor}`}>{t("overpay", lang)}</span>
                     <span
@@ -712,11 +712,11 @@ export default function TradePageClient({
             </div>
 
             {/* Market info (reference-style) */}
-            <div className="flex min-w-0 flex-col items-stretch gap-1.5" role="note">
-              <div className="w-full rounded-lg border border-amber-900/25 bg-[#0c0c0e] px-2 py-2 text-center text-[9px] font-medium leading-snug text-amber-500 sm:text-[10px]">
+            <div className="flex min-w-0 flex-col items-stretch gap-1" role="note">
+              <div className="w-full rounded-lg border border-amber-900/25 bg-[#0c0c0e] px-1.5 py-1.5 text-center text-[8px] font-medium leading-snug text-amber-500 sm:text-[9px]">
                 {t("marketWarning", lang)}
               </div>
-              <p className="w-full text-balance text-center text-[9px] leading-snug text-zinc-500 sm:text-[10px]">
+              <p className="w-full text-balance text-center text-[8px] leading-snug text-zinc-500 sm:text-[9px]">
                 {t("priceDisclaimer", lang)}
               </p>
             </div>
@@ -726,7 +726,7 @@ export default function TradePageClient({
 
             {/* Item Type Categories — 2 cols, truncate to avoid horizontal overflow */}
             <div className="min-w-0">
-              <h4 className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-zinc-400 sm:text-xs">
+              <h4 className="mb-0.5 flex items-center gap-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
                 <span className="shrink-0 text-amber-500">◈</span>
                 <span className="min-w-0 truncate">{t("itemType", lang)}</span>
               </h4>
@@ -752,7 +752,7 @@ export default function TradePageClient({
 
             {/* Wear filter */}
             <div className="min-w-0">
-              <h4 className="mb-1 flex items-center gap-1 text-[10px] font-semibold text-zinc-400 sm:text-xs">
+              <h4 className="mb-0.5 flex items-center gap-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
                 <span className="shrink-0 text-amber-500">◈</span>
                 <span className="min-w-0 truncate">{t("wearLabel", lang)}</span>
               </h4>
@@ -782,9 +782,9 @@ export default function TradePageClient({
             </div>
 
             {/* Requirements */}
-            <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 p-2">
+            <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1.5">
               {pendingRequirements > 0 ? (
-                <p className="mb-1 break-words text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+                <p className="mb-0.5 break-words text-[8px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[9px]">
                   {requirementsHeading(pendingRequirements, lang)}
                 </p>
               ) : null}
@@ -796,8 +796,8 @@ export default function TradePageClient({
             </div>
 
             {/* Fills remaining grid-cell height; panel + disclaimer so the strip isn’t an empty void */}
-            <div className="flex min-h-0 flex-1 flex-col justify-center rounded-lg border border-zinc-800/40 bg-zinc-900/30 px-2.5 py-3 sm:px-3 sm:py-3.5">
-              <p className="text-balance text-left text-[11px] font-medium leading-snug text-zinc-400 sm:text-xs sm:leading-relaxed">
+            <div className="flex min-h-0 flex-1 flex-col justify-start rounded-lg border border-zinc-800/40 bg-zinc-900/30 px-2 py-2 sm:px-2.5 sm:py-2">
+              <p className="text-balance text-left text-[9px] font-medium leading-snug text-zinc-500 sm:text-[10px] sm:leading-snug">
                 {t("centerPanelFiller", lang)}
               </p>
             </div>
@@ -827,7 +827,7 @@ export default function TradePageClient({
             refreshing={ownerRefreshing} cooldown={ownerCooldown}
             lang={lang}
           />
-          <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden p-2">
+          <div className="trade-scroll flex-1 overflow-y-auto overflow-x-hidden px-1.5 py-1 sm:px-2 sm:py-1.5">
                 <ItemGrid
                   items={filterOwner(ownerItems, ownerSearch, ownerSort)}
                   side="owner"
@@ -843,17 +843,17 @@ export default function TradePageClient({
       </div>
 
       {/* Footer */}
-      <footer className="w-full shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-4 py-4 sm:px-6 sm:py-5 lg:px-10">
-        <div className="flex w-full min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
+      <footer className="w-full shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-3 py-2 sm:px-5 sm:py-2.5 lg:px-8">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0 shrink-0 sm:max-w-[32%]">
-            <span className="text-sm font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-400">TRADING</span></span>
-            <p className="mt-1 max-w-full text-balance text-[10px] leading-relaxed text-zinc-600 sm:text-[11px]">
+            <span className="text-xs font-bold tracking-tight text-amber-500 sm:text-sm">CHEZ<span className="text-zinc-400">TRADING</span></span>
+            <p className="mt-0.5 max-w-full text-balance text-[9px] leading-snug text-zinc-600 sm:text-[10px]">
               © 2024–{new Date().getFullYear()} ChezTrading. {t("footerRights", lang)}
             </p>
           </div>
 
           <nav
-            className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-5 gap-y-2 text-[10px] text-zinc-600 sm:justify-center sm:text-[11px] lg:gap-x-8"
+            className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-[9px] text-zinc-600 sm:justify-center sm:gap-x-5 sm:text-[10px] lg:gap-x-6"
             aria-label="Legal"
           >
             <span className="shrink-0 cursor-default hover:text-zinc-400">{t("footerTos", lang)}</span>
@@ -864,13 +864,13 @@ export default function TradePageClient({
           </nav>
 
           <div className="min-w-0 shrink-0 text-center sm:max-w-[32%] sm:text-right">
-            <p className="text-[10px] text-zinc-600 sm:text-[11px]">
+            <p className="text-[9px] text-zinc-600 sm:text-[10px]">
               Support: <span className="break-all text-zinc-500">support@cheztrading.com</span>
             </p>
           </div>
         </div>
 
-        <div className="mt-4 w-full min-w-0 border-t border-zinc-800/40 px-2 pt-3 text-center text-[9px] leading-snug text-zinc-700 sm:mt-5 sm:px-4 sm:pt-4 sm:text-[10px]">
+        <div className="mt-2 w-full min-w-0 border-t border-zinc-800/40 px-1 pt-2 text-center text-[8px] leading-snug text-zinc-700 sm:mt-2.5 sm:px-3 sm:pt-2 sm:text-[9px]">
           <span className="text-balance">{t("footerValve", lang)}</span>
         </div>
       </footer>
@@ -890,32 +890,32 @@ function SelectedStrip({
   fmt: (cents: number) => string; lang: LangCode;
 }) {
   return (
-    <div className="shrink-0 border-b border-zinc-800/50 bg-[#111113] px-4 py-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
+    <div className="shrink-0 border-b border-zinc-800/50 bg-[#111113] px-2.5 py-1.5 sm:px-3 sm:py-2">
+      <div className="mb-1 flex items-center justify-between gap-1.5">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span
-              className={`flex h-5 min-w-[1.25rem] shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-bold ${count > 0 ? "bg-amber-600 text-white" : "bg-zinc-800 text-zinc-500"}`}
+              className={`flex h-4 min-w-[1rem] shrink-0 items-center justify-center rounded-full px-1 text-[9px] font-bold ${count > 0 ? "bg-amber-600 text-white" : "bg-zinc-800 text-zinc-500"}`}
               title={`${t("selected", l)} ${count} ${t("of", l)} ${maxPerSide}`}
             >
               {count}/{maxPerSide}
             </span>
-            <span className="text-sm font-semibold text-zinc-200">{label}</span>
+            <span className="text-xs font-semibold text-zinc-200 sm:text-[13px]">{label}</span>
           </div>
-          <p className="mt-0.5 text-[11px] text-zinc-600">{sublabel}</p>
+          <p className="mt-px truncate text-[9px] text-zinc-600 sm:text-[10px]">{sublabel}</p>
         </div>
-        {total > 0 && <span className="shrink-0 text-sm font-bold text-amber-400">{fmtFn(total)}</span>}
+        {total > 0 && <span className="shrink-0 text-xs font-bold tabular-nums text-amber-400 sm:text-sm">{fmtFn(total)}</span>}
       </div>
       <div
-        className="trade-scroll h-[min(176px,30vh)] w-full shrink-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]"
+        className="trade-scroll h-[min(100px,18vh)] w-full shrink-0 overflow-y-auto overflow-x-hidden overscroll-y-contain pr-0.5 [scrollbar-gutter:stable]"
         onWheel={(e) => e.stopPropagation()}
       >
         {items.length === 0 ? (
-          <div className="flex h-full items-center justify-center px-1">
-            <p className="text-center text-[11px] text-zinc-600">{isRight ? t("itemsNotSelected", l) : t("selectItemsForTrade", l)}</p>
+          <div className="flex h-full min-h-[2.5rem] items-center justify-center px-1 py-0.5">
+            <p className="text-center text-[9px] leading-tight text-zinc-600 sm:text-[10px]">{isRight ? t("itemsNotSelected", l) : t("selectItemsForTrade", l)}</p>
           </div>
         ) : (
-          <div className="flex w-full flex-wrap content-start gap-2 py-0.5">
+          <div className="flex w-full flex-wrap content-start gap-1.5 py-0.5">
             {items.map((item) => (
               <button
                 key={item.assetId}
@@ -924,7 +924,7 @@ function SelectedStrip({
                 title={`${item.name} — ${t("removeFromSelection", l)}`}
                 className="group relative rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#111113]"
               >
-                <div className="relative h-12 w-12 overflow-hidden rounded-lg border border-zinc-700/50 bg-zinc-800/50 p-0.5 transition-[border-color,box-shadow] group-hover:border-amber-500/45 group-hover:shadow-[0_0_0_1px_rgba(245,158,11,0.2)] group-active:scale-[0.97]">
+                <div className="relative h-10 w-10 overflow-hidden rounded-md border border-zinc-700/50 bg-zinc-800/50 p-0.5 transition-[border-color,box-shadow] group-hover:border-amber-500/45 group-hover:shadow-[0_0_0_1px_rgba(245,158,11,0.2)] group-active:scale-[0.97] sm:h-11 sm:w-11">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={item.iconUrl} alt="" className="h-full w-full object-contain" />
                 </div>
@@ -1073,7 +1073,7 @@ function PanelHeader({
   tradeUrlAction?: () => void; lang: LangCode;
 }) {
   return (
-    <div className="border-b border-zinc-800/50 bg-[#0f0f11] px-3 py-2.5">
+    <div className="border-b border-zinc-800/50 bg-[#0f0f11] px-2.5 py-1.5 sm:px-3 sm:py-2">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 text-xs">🔍</span>
@@ -1172,7 +1172,7 @@ function ItemGrid({ items, side, selected, onToggle, onLockedItemClick, showAsse
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 sm:gap-1.5 lg:grid-cols-4 xl:grid-cols-5">
         {visible.map((item) => (
           <ItemCard
             key={itemGridRowKey(item, side)}
@@ -1274,7 +1274,7 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
             }
           : undefined
       }
-      className={`group relative flex h-full min-h-[248px] flex-col overflow-visible rounded-xl border transition-all ${
+      className={`group relative flex h-full min-h-[228px] flex-col overflow-visible rounded-xl border transition-all sm:min-h-[236px] ${
         manualLocked
           ? "cursor-not-allowed border-zinc-700/45 bg-zinc-900/80 opacity-[0.62] contrast-[0.92] [filter:grayscale(32%)] focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50"
           : cannotSelect
@@ -1333,11 +1333,11 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
       </div>
 
       {/* Image area — grows so footer aligns across the row */}
-      <div className="relative flex min-h-[88px] flex-1 items-center justify-center px-2 py-2">
+      <div className="relative flex min-h-[76px] flex-1 items-center justify-center px-1.5 py-1.5 sm:min-h-[84px] sm:px-2 sm:py-2">
         {isUnavailable ? (
           <>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={item.iconUrl} alt="" className="h-[72px] w-[72px] object-contain blur-sm opacity-40" loading="lazy" />
+            <img src={item.iconUrl} alt="" className="h-[64px] w-[64px] object-contain blur-sm opacity-40 sm:h-[72px] sm:w-[72px]" loading="lazy" />
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
               <span className="text-base text-zinc-500">ⓘ</span>
               <span className="text-[10px] font-semibold uppercase text-amber-600">UNAVAILABLE</span>
@@ -1349,7 +1349,7 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           <img
             src={item.iconUrl}
             alt={item.name}
-            className={`h-[72px] w-[72px] object-contain ${manualLocked ? "" : "transition-transform group-hover:scale-105"}`}
+            className={`h-[64px] w-[64px] object-contain sm:h-[72px] sm:w-[72px] ${manualLocked ? "" : "transition-transform group-hover:scale-105"}`}
             loading="lazy"
           />
         )}
