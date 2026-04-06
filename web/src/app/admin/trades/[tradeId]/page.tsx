@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { AdminTradeUrlField } from "@/app/admin/admin-trade-url";
 import { TradeAdminForm } from "@/app/admin/trades/trade-admin-form";
 import { prisma } from "@/lib/prisma";
 import { serializeTradeFull } from "@/lib/trade-api-serialize";
@@ -49,10 +50,12 @@ export default async function AdminTradeDetailPage({ params }: Props) {
       </div>
 
       <div className="grid gap-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 sm:grid-cols-2">
-        <div>
+        <div className="min-w-0">
           <h2 className="text-xs font-medium uppercase text-zinc-500">Пользователь</h2>
           <p className="mt-1 text-zinc-900 dark:text-zinc-100">{trade.creator.displayName ?? "—"}</p>
           <p className="font-mono text-sm text-zinc-600 dark:text-zinc-400">{trade.creator.steamId}</p>
+          <p className="mt-2 text-xs font-medium text-zinc-500">Trade link:</p>
+          <AdminTradeUrlField url={trade.creator.tradeUrl ?? null} variant="detail" />
           <a
             href={`https://steamcommunity.com/profiles/${trade.creator.steamId}`}
             target="_blank"

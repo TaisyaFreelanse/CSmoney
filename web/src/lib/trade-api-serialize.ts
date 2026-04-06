@@ -1,4 +1,4 @@
-import type { Trade, TradeItem } from "@prisma/client";
+import type { Trade, TradeItem, User } from "@prisma/client";
 
 export function usdDecimalToCents(d: unknown): number {
   if (d == null) return 0;
@@ -23,7 +23,12 @@ export function serializeTradeItem(row: TradeItem) {
   };
 }
 
-export function serializeTradeFull(trade: Trade & { items: TradeItem[] }) {
+export function serializeTradeFull(
+  trade: Trade & {
+    items: TradeItem[];
+    creator?: Pick<User, "steamId" | "displayName" | "tradeUrl">;
+  },
+) {
   const items = trade.items.map(serializeTradeItem);
   const guestTotalCents = items
     .filter((i) => i.side === "guest")
@@ -31,7 +36,7 @@ export function serializeTradeFull(trade: Trade & { items: TradeItem[] }) {
   const ownerTotalCents = items
     .filter((i) => i.side === "owner")
     .reduce((s, i) => s + i.priceUsdCents, 0);
-  return {
+  const base = {
     id: trade.id,
     status: trade.status,
     createdAt: trade.createdAt.toISOString(),
@@ -40,6 +45,17 @@ export function serializeTradeFull(trade: Trade & { items: TradeItem[] }) {
     guestTotalCents,
     ownerTotalCents,
     items,
+  };
+  if (!trade.creator) {
+    return base;
+  }
+  return {
+    ...base,
+    creator: {
+      steamId: trade.creator.steamId,
+      displayName: trade.creator.displayName,
+      tradeUrl: trade.creator.tradeUrl ?? null,
+    },
   };
 }
 

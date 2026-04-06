@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { getSessionUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
+import { AdminTradeUrlField } from "@/app/admin/admin-trade-url";
+
 import { UserBanToggle } from "./user-ban-toggle";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +17,10 @@ export default async function AdminUsersPage() {
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "desc" },
-    take: 500,
     select: {
       steamId: true,
       displayName: true,
+      tradeUrl: true,
       createdAt: true,
       lastLoginAt: true,
       isBanned: true,
@@ -29,14 +31,17 @@ export default async function AdminUsersPage() {
   return (
     <main className="mx-auto max-w-6xl space-y-6">
       <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">Пользователи</h1>
-      <p className="text-sm text-zinc-500">Показано до 500, новые сверху.</p>
+      <p className="text-sm text-zinc-500">
+        Всего: {users.length}. Сортировка: сначала недавно зарегистрированные.
+      </p>
 
       <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-        <table className="w-full min-w-[800px] border-collapse text-left text-sm">
+        <table className="w-full min-w-[960px] border-collapse text-left text-sm">
           <thead>
             <tr className="border-b border-zinc-200 bg-zinc-50 text-xs font-medium uppercase text-zinc-500 dark:border-zinc-800 dark:bg-zinc-800/50 dark:text-zinc-400">
               <th className="px-4 py-3">Имя Steam</th>
               <th className="px-4 py-3">Steam ID</th>
+              <th className="px-4 py-3">Trade link</th>
               <th className="px-4 py-3">Регистрация</th>
               <th className="px-4 py-3">Последний вход</th>
               <th className="px-4 py-3">Статус</th>
@@ -55,6 +60,9 @@ export default async function AdminUsersPage() {
                   ) : null}
                 </td>
                 <td className="px-4 py-2 font-mono text-xs text-zinc-600 dark:text-zinc-400">{u.steamId}</td>
+                <td className="max-w-[min(280px,28vw)] px-4 py-2 align-top">
+                  <AdminTradeUrlField url={u.tradeUrl ?? null} variant="table" />
+                </td>
                 <td className="whitespace-nowrap px-4 py-2 text-zinc-600 dark:text-zinc-400">
                   {u.createdAt.toLocaleString("ru-RU")}
                 </td>

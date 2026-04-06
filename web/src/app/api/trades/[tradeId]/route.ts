@@ -25,7 +25,7 @@ export async function GET(
 
   const trade = await prisma.trade.findUnique({
     where: { id: tradeId },
-    include: { items: true },
+    include: { items: true, creator: true },
   });
 
   if (!trade) {

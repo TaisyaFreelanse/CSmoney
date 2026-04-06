@@ -59,6 +59,42 @@ const T: Translations = {
   sending: { ru: "Отправка...", en: "Sending...", zh: "发送中..." },
   submitTrade: { ru: "Отправить обмен", en: "Submit trade", zh: "提交交易" },
 
+  tradeSubmitModalTitle: {
+    ru: "Выберите способ отправки трейда",
+    en: "Choose how to send the trade",
+    zh: "选择发送交易的方式",
+  },
+  tradeSubmitManualBtn: { ru: "Отправить трейд вручную", en: "Send trade manually", zh: "手动发送交易" },
+  tradeSubmitManualHint: {
+    ru: "Вы вручную отправляете трейд в Steam",
+    en: "You send the trade yourself in Steam",
+    zh: "您在 Steam 中自行发送交易",
+  },
+  tradeSubmitSiteBtn: {
+    ru: "Запросить отправку трейда сайтом",
+    en: "Request the site to send the offer",
+    zh: "请求由网站发送报价",
+  },
+  tradeSubmitSiteHint: {
+    ru: "Сайт отправит вам предложение",
+    en: "The site will send you the offer",
+    zh: "网站将向您发送报价",
+  },
+  tradeSubmitSiteDone: {
+    ru: "Трейд успешно создан, ожидайте поступления торгового предложения.",
+    en: "Trade request created. Please wait for the trade offer to arrive.",
+    zh: "交易申请已创建，请等待收到交易报价。",
+  },
+  tradeSubmitModalClose: { ru: "Закрыть", en: "Close", zh: "关闭" },
+  tradeSubmitOpenRequest: { ru: "Открыть заявку", en: "Open request", zh: "查看申请" },
+  tradeSubmitNoStoreUrl: {
+    ru: "Заявка сохранена. Ссылка обмена магазина не настроена — откройте Steam вручную.",
+    en: "Request saved. Store trade URL is not configured — open Steam manually.",
+    zh: "申请已保存。未配置商店交易链接，请手动打开 Steam。",
+  },
+  tradeSubmitBackdropClose: { ru: "Закрыть окно", en: "Close dialog", zh: "关闭对话框" },
+  tradeSubmitSuccessHeading: { ru: "Готово", en: "Success", zh: "完成" },
+
   marketWarning: {
     ru: "некоторые трейды могут быть отклонены из-за нестабильности рынка",
     en: "some trades may be rejected due to market instability",

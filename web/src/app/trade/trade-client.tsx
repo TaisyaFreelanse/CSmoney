@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { OWNER_REFRESH_COOLDOWN_MS, USER_REFRESH_COOLDOWN_MS } from "@/lib/inventory-refresh-limits";
@@ -143,7 +142,6 @@ export default function TradePageClient({
   signedInNotice?: boolean;
   isAdmin?: boolean;
 } = {}) {
-  const router = useRouter();
   const [ownerItems, setOwnerItems] = useState<InventoryItem[]>([]);
   const [myItems, setMyItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -153,7 +151,13 @@ export default function TradePageClient({
   const [hasTradeUrl, setHasTradeUrl] = useState(false);
   const [editingTradeUrl, setEditingTradeUrl] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+
+  const [tradeSubmitModalOpen, setTradeSubmitModalOpen] = useState(false);
+  const [tradeSubmitModalPhase, setTradeSubmitModalPhase] = useState<"pick" | "site_done">("pick");
+  const [tradeModalBusy, setTradeModalBusy] = useState(false);
+  const [tradeModalError, setTradeModalError] = useState<string | null>(null);
+  const [tradeModalCreatedId, setTradeModalCreatedId] = useState<string | null>(null);
+  const tradeModalSnapshotRef = useRef<{ guest: string[]; owner: string[] } | null>(null);
 
   const [ownerRefreshing, setOwnerRefreshing] = useState(false);
   const [myRefreshing, setMyRefreshing] = useState(false);
@@ -225,6 +229,115 @@ export default function TradePageClient({
     (cents: number) => fmtPrice(cents, currency, fxRatesByCode),
     [currency, fxRatesByCode],
   );
+
+  const formatTradeApiError = useCallback(
+    (data: Record<string, unknown> | null): string => {
+      if (!data) return t("errorGenericShort", lang);
+      if (data.error === "overpay_too_low" && typeof data.shortfallCents === "number") {
+        return `${t("addItemsOrRemove", lang)} ${fmt(data.shortfallCents)} (${t("overpayNotBelow", lang)})`;
+      }
+      if (data.error === "overpay_too_high" && typeof data.excessCents === "number") {
+        return `${t("reduceOverpayBy", lang)} ${fmt(data.excessCents)} (${t("maxPercent", lang)} ${TRADE_MAX_OVERPAY_PERCENT}%)`;
+      }
+      if (data.error === "no_pricing") return t("tradeNoPricing", lang);
+      const msg = data.message;
+      return typeof msg === "string" ? msg : typeof data.error === "string" ? data.error : t("errorGenericShort", lang);
+    },
+    [fmt, lang],
+  );
+
+  const executeTradeSubmit = useCallback(async () => {
+    const snap = tradeModalSnapshotRef.current;
+    if (!snap) return { ok: false as const, error: t("errorGenericShort", lang) };
+    const res = await fetch("/api/trades", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ guestItems: snap.guest, ownerItems: snap.owner }),
+    });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok) {
+      return { ok: false as const, error: formatTradeApiError(data) };
+    }
+    return {
+      ok: true as const,
+      tradeId: String(data?.tradeId ?? ""),
+      ownerTradeUrl: typeof data?.ownerTradeUrl === "string" ? data.ownerTradeUrl : null,
+    };
+  }, [formatTradeApiError, lang]);
+
+  const closeTradeSubmitModal = useCallback(() => {
+    setTradeSubmitModalOpen(false);
+    setTradeSubmitModalPhase("pick");
+    setTradeModalError(null);
+    setTradeModalCreatedId(null);
+    setTradeModalBusy(false);
+    tradeModalSnapshotRef.current = null;
+  }, []);
+
+  const openTradeSubmitModal = useCallback(() => {
+    setError(null);
+    setTradeSubmitError(null);
+    tradeModalSnapshotRef.current = {
+      guest: Array.from(selectedMy),
+      owner: Array.from(selectedOwner),
+    };
+    setTradeSubmitModalPhase("pick");
+    setTradeModalError(null);
+    setTradeModalCreatedId(null);
+    setTradeSubmitModalOpen(true);
+  }, [selectedMy, selectedOwner]);
+
+  const handleTradeModalManual = useCallback(async () => {
+    setTradeModalBusy(true);
+    setTradeModalError(null);
+    const r = await executeTradeSubmit();
+    setTradeModalBusy(false);
+    if (!r.ok) {
+      setTradeModalError(r.error);
+      return;
+    }
+    setSelectedMy(new Set());
+    setSelectedOwner(new Set());
+    if (r.ownerTradeUrl) {
+      window.open(r.ownerTradeUrl, "_blank", "noopener,noreferrer");
+    } else {
+      setTradeSubmitError(t("tradeSubmitNoStoreUrl", lang));
+    }
+    closeTradeSubmitModal();
+  }, [closeTradeSubmitModal, executeTradeSubmit, lang]);
+
+  const handleTradeModalSite = useCallback(async () => {
+    setTradeModalBusy(true);
+    setTradeModalError(null);
+    const r = await executeTradeSubmit();
+    setTradeModalBusy(false);
+    if (!r.ok) {
+      setTradeModalError(r.error);
+      return;
+    }
+    setSelectedMy(new Set());
+    setSelectedOwner(new Set());
+    setTradeModalCreatedId(r.tradeId);
+    setTradeSubmitModalPhase("site_done");
+  }, [executeTradeSubmit]);
+
+  useEffect(() => {
+    if (!tradeSubmitModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeTradeSubmitModal();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [tradeSubmitModalOpen, closeTradeSubmitModal]);
+
+  useEffect(() => {
+    if (!tradeSubmitModalOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [tradeSubmitModalOpen]);
 
   // ------ loaders ------
   const loadOwner = useCallback(async () => {
@@ -363,45 +476,6 @@ export default function TradePageClient({
     });
   }, [lang]);
 
-  // ------ submit trade ------
-  const submitTrade = useCallback(async () => {
-    setError(null);
-    setTradeSubmitError(null);
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/trades", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ guestItems: Array.from(selectedMy), ownerItems: Array.from(selectedOwner) }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        if (data?.error === "overpay_too_low" && typeof data?.shortfallCents === "number") {
-          setTradeSubmitError(
-            `${t("addItemsOrRemove", lang)} ${fmt(data.shortfallCents)} (${t("overpayNotBelow", lang)})`,
-          );
-          return;
-        }
-        if (data?.error === "overpay_too_high" && typeof data?.excessCents === "number") {
-          setTradeSubmitError(
-            `${t("reduceOverpayBy", lang)} ${fmt(data.excessCents)} (${t("maxPercent", lang)} ${TRADE_MAX_OVERPAY_PERCENT}%)`,
-          );
-          return;
-        }
-        if (data?.error === "no_pricing") {
-          setTradeSubmitError(t("tradeNoPricing", lang));
-          return;
-        }
-        setTradeSubmitError(data?.message ?? data?.error ?? t("errorGenericShort", lang));
-        return;
-      }
-      setSelectedMy(new Set());
-      setSelectedOwner(new Set());
-      if (data.ownerTradeUrl) window.open(data.ownerTradeUrl, "_blank");
-      router.push(`/trades/${data.tradeId}`);
-    } finally { setSubmitting(false); }
-  }, [selectedMy, selectedOwner, lang, fmt, router]);
-
   // ------ computed ------
   const selMyItems = myItems.filter((i) => selectedMy.has(i.assetId));
   const selOwnerItems = ownerItems.filter((i) => selectedOwner.has(i.assetId));
@@ -428,7 +502,7 @@ export default function TradePageClient({
     overpayPct < 0 || overpayPct > TRADE_MAX_OVERPAY_PERCENT
       ? "text-red-400"
       : "text-emerald-500";
-  const canSubmit = tradeSelectionReady && tradeBalance?.ok === true && !submitting;
+  const canSubmit = tradeSelectionReady && tradeBalance?.ok === true && !tradeModalBusy;
 
   useLayoutEffect(() => {
     const el = overpayBarFillRef.current;
@@ -703,7 +777,7 @@ export default function TradePageClient({
                 </div>
                 <button
                   type="button"
-                  onClick={submitTrade}
+                  onClick={openTradeSubmitModal}
                   disabled={!canSubmit}
                   className={`w-full shrink-0 rounded-lg px-2 py-2 text-center text-[10px] font-bold leading-tight transition-all @[240px]:w-auto @[240px]:self-center @[240px]:px-3 @[240px]:py-2.5 @[240px]:text-xs ${
                     canSubmit
@@ -711,7 +785,7 @@ export default function TradePageClient({
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
                   }`}
                 >
-                  {submitting ? t("sending", lang) : t("submitTrade", lang)}
+                  {t("submitTrade", lang)}
                 </button>
               </div>
             </div>
@@ -879,6 +953,102 @@ export default function TradePageClient({
           <span className="text-balance">{t("footerValve", lang)}</span>
         </div>
       </footer>
+
+      {tradeSubmitModalOpen ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/75 backdrop-blur-[2px]"
+            aria-label={t("tradeSubmitBackdropClose", lang)}
+            onClick={closeTradeSubmitModal}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trade-submit-modal-title"
+            className="relative z-[201] w-full max-w-md overflow-hidden rounded-2xl border border-zinc-700/80 bg-[#141416] shadow-2xl shadow-black/60"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 sm:px-5">
+              <h2 id="trade-submit-modal-title" className="text-sm font-semibold text-zinc-100 sm:text-base">
+                {tradeSubmitModalPhase === "pick" ? t("tradeSubmitModalTitle", lang) : t("tradeSubmitSuccessHeading", lang)}
+              </h2>
+              <button
+                type="button"
+                onClick={closeTradeSubmitModal}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
+                aria-label={t("tradeSubmitModalClose", lang)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-4 py-4 sm:px-5 sm:py-5">
+              {tradeSubmitModalPhase === "pick" ? (
+                <>
+                  {tradeModalError ? (
+                    <p className="mb-4 rounded-lg border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
+                      {tradeModalError}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-col gap-3">
+                    <button
+                      type="button"
+                      disabled={tradeModalBusy}
+                      onClick={() => void handleTradeModalManual()}
+                      className="flex w-full flex-col items-center rounded-xl border border-amber-700/50 bg-amber-600/15 px-4 py-3.5 text-center transition-all hover:border-amber-500/60 hover:bg-amber-600/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="text-sm font-bold text-amber-400 sm:text-base">
+                        {t("tradeSubmitManualBtn", lang)}
+                      </span>
+                      <span className="mt-1 text-[11px] leading-snug text-zinc-500 sm:text-xs">
+                        {t("tradeSubmitManualHint", lang)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={tradeModalBusy}
+                      onClick={() => void handleTradeModalSite()}
+                      className="flex w-full flex-col items-center rounded-xl border border-zinc-600 bg-zinc-800/80 px-4 py-3.5 text-center transition-all hover:border-zinc-500 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="text-sm font-bold text-zinc-100 sm:text-base">
+                        {t("tradeSubmitSiteBtn", lang)}
+                      </span>
+                      <span className="mt-1 text-[11px] leading-snug text-zinc-500 sm:text-xs">
+                        {t("tradeSubmitSiteHint", lang)}
+                      </span>
+                    </button>
+                  </div>
+                  {tradeModalBusy ? (
+                    <p className="mt-4 text-center text-xs text-zinc-500">{t("sending", lang)}</p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="space-y-4 text-center">
+                  <p className="text-sm leading-relaxed text-zinc-200 sm:text-base">{t("tradeSubmitSiteDone", lang)}</p>
+                  {tradeModalCreatedId ? (
+                    <Link
+                      href={`/trades/${tradeModalCreatedId}`}
+                      className="inline-flex rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-500"
+                    >
+                      {t("tradeSubmitOpenRequest", lang)}
+                    </Link>
+                  ) : null}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={closeTradeSubmitModal}
+                      className="text-sm text-zinc-500 underline-offset-2 hover:text-zinc-300 hover:underline"
+                    >
+                      {t("tradeSubmitModalClose", lang)}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
