@@ -1634,7 +1634,7 @@ function InspectInGameButton({ href, lang: l }: { href: string; lang: LangCode }
       href={href}
       title={t("inspectInCs2", l)}
       aria-label={t("inspectInCs2", l)}
-      className="absolute right-0.5 top-0.5 z-[25] flex h-6 w-6 items-center justify-center rounded-md border border-red-950/60 bg-[#2a1518]/90 text-zinc-200 shadow-sm backdrop-blur-[2px] transition-colors hover:border-amber-900/40 hover:bg-[#331a1d] hover:text-white"
+      className="absolute right-0.5 top-0.5 z-[45] flex h-6 w-6 items-center justify-center rounded-md border border-red-950/60 bg-[#2a1518]/90 text-zinc-200 shadow-sm backdrop-blur-[2px] transition-colors hover:border-amber-900/40 hover:bg-[#331a1d] hover:text-white"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -1697,7 +1697,7 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
       }`}
     >
       {isSelected && (
-        <div className="absolute left-1 top-1 z-10 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[7px] font-bold text-black shadow-sm">
+        <div className="absolute left-1 top-1 z-[46] flex h-3.5 w-3.5 items-center justify-center rounded-full bg-amber-500 text-[7px] font-bold text-black shadow-sm">
           ✓
         </div>
       )}
@@ -1724,24 +1724,46 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           <img
             src={item.iconUrl}
             alt={item.name}
-            className={`max-h-[92%] max-w-[92%] object-contain ${manualLocked ? "" : "transition-transform duration-150 group-hover:scale-[1.03]"}`}
+            className={`max-h-[92%] max-w-[92%] object-contain ${manualLocked ? "" : "transition-transform duration-200 ease-out group-hover:scale-[1.02]"}`}
             loading="lazy"
           />
         )}
 
-        {/* Hover overlay: extra meta without permanent vertical clutter */}
-        <div className="pointer-events-none absolute inset-0 rounded-md bg-gradient-to-t from-zinc-950/85 via-zinc-950/20 to-transparent opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[15] px-1 pb-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-          <p className="line-clamp-2 text-center text-[8px] leading-snug text-zinc-100 drop-shadow-md" style={{ color: nameColor }}>
+        {/* Hover: fade only (absolute — no layout shift). Full name + wear + float — not duplicated in footer */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-[22] rounded-b-md bg-gradient-to-t from-zinc-950/95 via-zinc-950/75 to-transparent opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100"
+          aria-hidden
+        />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[24] max-h-[55%] overflow-hidden px-1.5 pb-1 pt-4 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
+          <p
+            className="break-words text-center text-[8px] font-semibold leading-snug text-zinc-50 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)] line-clamp-4"
+            style={{ color: nameColor }}
+          >
             {item.name}
           </p>
           {item.wear ? (
-            <p className="mt-0.5 truncate text-center text-[7px] text-zinc-300/95">{item.wear}</p>
+            <p className="mt-1 truncate text-center text-[8px] font-medium text-zinc-200/95 drop-shadow-sm">{item.wear}</p>
+          ) : null}
+          {item.floatValue != null ? (
+            <div className="mt-1 space-y-0.5">
+              <p className="text-center text-[8px] leading-none text-zinc-300">
+                <span className="text-zinc-500">Float </span>
+                <span className="font-mono font-medium tabular-nums text-zinc-100">
+                  {item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}
+                </span>
+              </p>
+              <div className="h-0.5 w-full overflow-hidden rounded-full bg-zinc-800/90 shadow-inner">
+                <div
+                  className="h-full rounded-full transition-[width] duration-200"
+                  style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }}
+                />
+              </div>
+            </div>
           ) : null}
         </div>
 
         {isLocked && (
-          <div className="absolute left-0.5 top-0.5 z-20 flex max-w-[calc(100%-2rem)] items-center gap-0.5 rounded bg-orange-800/90 px-1 py-px text-[7px] font-medium text-orange-50 shadow-sm backdrop-blur-[2px]">
+          <div className="absolute left-0.5 top-0.5 z-[50] flex max-w-[calc(100%-2.25rem)] items-center gap-0.5 rounded bg-orange-800/95 px-1 py-0.5 text-[7px] font-medium text-orange-50 shadow-md ring-1 ring-orange-950/40 backdrop-blur-[2px]">
             <span className="shrink-0" aria-hidden>
               🔒
             </span>
@@ -1760,66 +1782,26 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         )}
 
         {item.inspectLink ? <InspectInGameButton href={item.inspectLink} lang={l} /> : null}
-
-        {item.stickers.length > 0 && (
-          <div className="group/stickers absolute bottom-0.5 left-0.5 z-20 max-w-[calc(100%-0.5rem)]">
-            <div
-              className="flex flex-wrap gap-px"
-              aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
-            >
-              {item.stickers.slice(0, 4).map((s, i) => (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  key={i}
-                  src={s.iconUrl}
-                  alt=""
-                  className="h-3.5 w-3.5 rounded border border-zinc-700/50 bg-zinc-900/90 object-contain shadow-sm"
-                  loading="lazy"
-                />
-              ))}
-              {item.stickers.length > 4 && (
-                <span className="self-center text-[7px] leading-none text-zinc-400">+{item.stickers.length - 4}</span>
-              )}
-            </div>
-            <div className="pointer-events-none invisible absolute bottom-full left-0 z-30 mb-0.5 w-max max-w-[min(220px,calc(100vw-32px))] rounded border border-zinc-600/90 bg-zinc-950 px-1.5 py-1 text-left text-[8px] leading-snug text-zinc-100 shadow-lg opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
-              <p className="mb-0.5 text-[7px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
-              <ul className="list-none space-y-0.5">
-                {item.stickers.map((s, i) => (
-                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-0.5 last:border-0 last:pb-0">
-                    {stickerLabel(s, i, l)}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Compact meta ~30% */}
-      <div className="relative flex min-h-0 flex-[3] flex-col justify-end gap-px px-1.5 pb-1 pt-0">
-        <p className="w-full truncate text-center text-[9px] font-semibold leading-tight text-zinc-100" style={{ color: nameColor }}>
-          {item.name}
-        </p>
-        <div className="flex min-h-[14px] items-center justify-center gap-1">
-          {item.wear ? (
-            <span className="max-w-[45%] truncate rounded bg-zinc-800/90 px-1 py-px text-[7px] font-medium text-zinc-400">
-              {item.wear}
-            </span>
-          ) : null}
-          {item.phaseLabel ? (
-            <span className={`max-w-[55%] truncate text-[8px] font-bold leading-none ${phaseTextColor(item.phaseLabel)}`}>
-              {item.phaseLabel}
-            </span>
-          ) : null}
-        </div>
+      {/* Footer ~30% — hierarchy: stickers → short name (hidden on hover) → price */}
+      <div className="relative flex min-h-0 flex-[3] flex-col justify-end gap-1 px-1.5 pb-1 pt-0.5">
+        {item.phaseLabel ? (
+          <div className="flex min-h-[12px] items-center justify-center">
+            <span className={`truncate text-[8px] font-bold leading-none ${phaseTextColor(item.phaseLabel)}`}>{item.phaseLabel}</span>
+          </div>
+        ) : null}
         {manualLocked ? (
-          <p className="line-clamp-1 w-full text-center text-[7px] leading-tight text-orange-200/90" title={lockedManualCardSubtitle(item, l)}>
+          <p
+            className="line-clamp-1 w-full text-center text-[7px] leading-tight text-orange-200/90 transition-opacity duration-200 group-hover:opacity-0"
+            title={lockedManualCardSubtitle(item, l)}
+          >
             {lockedManualCardSubtitle(item, l)}
           </p>
         ) : null}
         {showAssetId ? (
           <div
-            className="flex w-full max-w-full items-center gap-0.5"
+            className="flex w-full max-w-full items-center gap-0.5 transition-opacity duration-200 group-hover:opacity-0"
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
           >
@@ -1845,28 +1827,53 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           </div>
         ) : null}
 
-        {item.floatValue != null ? (
-          <div className="flex flex-col gap-px">
-            <p className="text-[8px] leading-none text-zinc-500">
-              F{" "}
-              <span className="font-mono font-medium text-zinc-300">{item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}</span>
-            </p>
-            <div className="h-0.5 w-full shrink-0 overflow-hidden rounded-full bg-zinc-800">
-              <div
-                className="h-full rounded-full"
-                style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }}
-              />
+        {item.stickers.length > 0 ? (
+          <div className="group/stickers relative flex w-full min-w-0 justify-center">
+            <div
+              className="flex max-w-full flex-nowrap items-center justify-center gap-0.5 overflow-hidden rounded-md bg-zinc-950/85 px-1 py-0.5 shadow-md ring-1 ring-black/50"
+              aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
+            >
+              {item.stickers.slice(0, 5).map((s, i) => (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  key={i}
+                  src={s.iconUrl}
+                  alt=""
+                  className="size-5 shrink-0 rounded border border-zinc-600/60 bg-zinc-900 object-contain shadow-sm"
+                  loading="lazy"
+                />
+              ))}
+              {item.stickers.length > 5 && (
+                <span className="shrink-0 self-center pl-0.5 text-[8px] font-medium leading-none text-zinc-400">+{item.stickers.length - 5}</span>
+              )}
+            </div>
+            <div className="pointer-events-none invisible absolute bottom-full left-1/2 z-[60] mb-1 w-max max-w-[min(240px,calc(100vw-32px))] -translate-x-1/2 rounded-md border border-zinc-600/90 bg-zinc-950 px-2 py-1.5 text-left text-[8px] leading-snug text-zinc-100 shadow-xl opacity-0 transition-opacity duration-150 group-hover/stickers:visible group-hover/stickers:opacity-100">
+              <p className="mb-1 text-[7px] font-semibold uppercase tracking-wide text-zinc-500">{t("stickers", l)}</p>
+              <ul className="list-none space-y-1">
+                {item.stickers.map((s, i) => (
+                  <li key={`${item.assetId}-st-${i}`} className="break-words border-b border-zinc-800/80 pb-1 last:border-0 last:pb-0">
+                    {stickerLabel(s, i, l)}
+                  </li>
+                ))}
+              </ul>
             </div>
           </div>
-        ) : (
-          <div className="h-0.5 shrink-0" aria-hidden />
-        )}
+        ) : null}
 
-        <div className="flex items-end justify-between gap-1 pt-px">
+        <p
+          className="min-h-[13px] w-full truncate text-center text-[8px] font-semibold leading-tight text-zinc-200 transition-opacity duration-200 ease-out opacity-100 group-hover:opacity-0"
+          style={{ color: nameColor }}
+        >
+          {item.name}
+        </p>
+
+        <div className="flex min-h-[18px] items-end justify-between gap-1 border-t border-zinc-800/40 pt-0.5">
           {item.priceSource === "unavailable" || isUnavailable ? (
-            <span className="text-[9px] text-zinc-600">—</span>
+            <span className="text-[10px] text-zinc-600">—</span>
           ) : (
-            <span className="truncate text-[11px] font-bold tabular-nums leading-none text-amber-400">{fmtFn(item.priceUsd)}</span>
+            <span className="truncate text-xs font-bold tabular-nums leading-none tracking-tight text-amber-400 sm:text-[13px]">
+              {fmtFn(item.priceUsd)}
+            </span>
           )}
           {item.priceSource === "manual" && showAssetId ? (
             <span className="shrink-0 text-[7px] text-amber-700">man.</span>
