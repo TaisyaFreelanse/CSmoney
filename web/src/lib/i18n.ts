@@ -277,11 +277,14 @@ export function formatRefreshCooldown(totalSeconds: number, lang: LangCode): str
   return `${s} ${S}`;
 }
 
+/** Relative time until unlock; uses UTC instants only (`getTime()` / `Date.now()`), not local calendar fields. */
 export function fmtLockI18n(iso: string, lang: LangCode): string {
-  const d = new Date(iso).getTime() - Date.now();
-  if (d <= 0) return "";
-  const days = Math.floor(d / 86_400_000);
-  const hrs = Math.floor((d % 86_400_000) / 3_600_000);
+  const unlockMs = new Date(iso).getTime();
+  if (Number.isNaN(unlockMs)) return "";
+  const diffMs = unlockMs - Date.now();
+  if (diffMs <= 0) return "";
+  const days = Math.floor(diffMs / 86_400_000);
+  const hrs = Math.floor((diffMs % 86_400_000) / 3_600_000);
   if (days > 0) return `${days}${t("daysShort", lang)}`;
   return `${hrs}${t("hoursShort", lang)}`;
 }

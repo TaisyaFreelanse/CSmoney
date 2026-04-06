@@ -5,6 +5,7 @@ import {
   ownerInventoryErrorAllowsDefaultContextFallback,
   resolveOwnerInventoryContextId,
   steamClassInstanceKey,
+  steamTradeLockMiddleToIso,
   _testing,
 } from "../steam-inventory";
 
@@ -381,26 +382,37 @@ describe("normalizeInventory — no false Doppler phase", () => {
 // ---------------------------------------------------------------------------
 // detectTradeLock — parsed from Steam description lines (not a separate API field)
 // ---------------------------------------------------------------------------
+describe("steamTradeLockMiddleToIso", () => {
+  it("interprets Steam wall time as GMT, not local TZ", () => {
+    expect(steamTradeLockMiddleToIso("May 01, 2028 0:00:00")).toBe("2028-05-01T00:00:00.000Z");
+    expect(steamTradeLockMiddleToIso("Apr 20, 2027 14:00:00 GMT")).toBe("2027-04-20T14:00:00.000Z");
+  });
+
+  it("pulls time out of parentheses before parsing", () => {
+    expect(steamTradeLockMiddleToIso("Sep 21, 2025 (7:00:00)")).toBe("2025-09-21T07:00:00.000Z");
+  });
+
+  it("accepts existing ISO strings", () => {
+    expect(steamTradeLockMiddleToIso("2027-06-15T12:00:00.000Z")).toBe("2027-06-15T12:00:00.000Z");
+  });
+});
+
 describe("detectTradeLock", () => {
   it("parses English «Tradable After: …» into an ISO timestamp when Date understands it", () => {
     const iso = detectTradeLock([
       { value: "Tradable After Apr 20, 2027 14:00:00 GMT" },
     ]);
-    expect(iso).not.toBeNull();
-    expect(new Date(iso!).getTime()).not.toBeNaN();
-    expect(new Date(iso!).getUTCFullYear()).toBe(2027);
+    expect(iso).toBe("2027-04-20T14:00:00.000Z");
   });
 
-  it("parses «Trade Protected … until …»", () => {
+  it("parses «Trade Protected … until …» as UTC midnight when no GMT suffix", () => {
     const iso = detectTradeLock([{ value: "Trade Protected until May 01, 2028 0:00:00" }]);
-    expect(iso).not.toBeNull();
-    expect(new Date(iso!).getUTCFullYear()).toBe(2028);
+    expect(iso).toBe("2028-05-01T00:00:00.000Z");
   });
 
   it("parses Russian «Торговая блокировка … до …»", () => {
     const iso = detectTradeLock([{ value: "Торговая блокировка до Jun 15, 2027 12:00:00" }]);
-    expect(iso).not.toBeNull();
-    expect(new Date(iso!).getUTCFullYear()).toBe(2027);
+    expect(iso).toBe("2027-06-15T12:00:00.000Z");
   });
 
   it("returns null when no trade-hold line is present", () => {
@@ -488,9 +500,7 @@ describe("normalizeInventory — owner_descriptions (admin JSON only)", () => {
       ],
     };
     const [item] = normalizeInventory(raw, undefined, { ownerDescriptionsTradeLock: true });
-    expect(item.tradeLockUntil).not.toBeNull();
-    expect(new Date(item.tradeLockUntil!).getUTCFullYear()).toBe(2028);
-    expect(new Date(item.tradeLockUntil!).getUTCMonth()).toBe(5);
+    expect(item.tradeLockUntil).toBe("2028-06-01T07:00:00.000Z");
   });
 });
 
@@ -523,7 +533,7 @@ describe("normalizeInventory — trade hold / tradable", () => {
     };
     const [item] = normalizeInventory(raw);
     expect(item.tradable).toBe(false);
-    expect(item.tradeLockUntil).not.toBeNull();
+    expect(item.tradeLockUntil).toBe("2027-04-20T14:00:00.000Z");
     const now = new Date("2026-01-01T00:00:00.000Z");
     expect(isEffectivelyTradeLocked(item, now)).toBe(true);
   });
@@ -575,7 +585,7 @@ describe("normalizeInventory — trade hold / tradable", () => {
     };
     const [item] = normalizeInventory(raw);
     expect(item.tradable).toBe(true);
-    expect(item.tradeLockUntil).not.toBeNull();
+    expect(item.tradeLockUntil).toBe("2020-01-01T00:00:00.000Z");
     expect(isEffectivelyTradeLocked(item, new Date("2026-01-01T00:00:00.000Z"))).toBe(false);
   });
 });

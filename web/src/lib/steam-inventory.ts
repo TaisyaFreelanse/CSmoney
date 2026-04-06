@@ -397,6 +397,30 @@ function extractInspectLink(actions: Array<{ link?: string; name?: string }> | u
 }
 
 /**
+ * Parse a Steam trade-lock date fragment into UTC ISO.
+ * Steam uses GMT for these strings; `new Date(string)` without a zone uses the host's local TZ,
+ * which skews `toISOString()` and any "hours until unlock" math.
+ */
+export function steamTradeLockMiddleToIso(middle: string): string | null {
+  let s = middle.trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  // "Sep 21, 2025 (7:00:00)" → "Sep 21, 2025 7:00:00" before appending GMT
+  s = s.replace(/\s*\((\d{1,2}:\d{2}(?::\d{2})?)\)\s*/gi, " $1 ");
+  s = s.replace(/\s*\([^)]*\)/g, "");
+  s = s.replace(/\s*GMT\s*$/i, "").trim();
+  if (!s) return null;
+
+  const parsed = new Date(`${s} GMT`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/**
  * Parse Steam English trade-hold line from `owner_descriptions[].value` (context 16 export).
  * Primary: "Tradable After Sep 21, 2025 (7:00:00) GMT".
  * Also handles common variant: "... until Apr 13, 2026 (7:00:00) GMT" (first `owner_descriptions` entry is often blank).
@@ -406,20 +430,15 @@ export function extractTradeLockDate(text?: string | null): string | null {
   const t = text.trim();
   if (!t) return null;
 
-  const tryParseGmt = (middle: string): string | null => {
-    const parsed = new Date(`${middle.trim()} GMT`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-  };
-
   let m = t.match(/Tradable After\s+(.+?)\s*GMT/i);
   if (m) {
-    const iso = tryParseGmt(m[1]);
+    const iso = steamTradeLockMiddleToIso(m[1]);
     if (iso) return iso;
   }
 
   m = t.match(/\buntil\s+(.+?)\s*GMT/i);
   if (m) {
-    const iso = tryParseGmt(m[1]);
+    const iso = steamTradeLockMiddleToIso(m[1]);
     if (iso) return iso;
   }
 
@@ -454,12 +473,8 @@ function detectTradeLock(
     for (const re of patterns) {
       const m = re.exec(val);
       if (m) {
-        const raw = m[1].replace(/\s*\(.*\)/, "").replace(/\s*GMT.*/, "").trim();
-        try {
-          const parsed = new Date(raw);
-          if (!isNaN(parsed.getTime())) return parsed.toISOString();
-        } catch { /* fall through */ }
-        return raw;
+        const iso = steamTradeLockMiddleToIso(m[1]);
+        if (iso) return iso;
       }
     }
   }
@@ -834,5 +849,6 @@ export const _testing = {
   extractStickers,
   extractInspectLink,
   detectTradeLock,
+  steamTradeLockMiddleToIso,
   INSPECT_PREFIX,
 };
