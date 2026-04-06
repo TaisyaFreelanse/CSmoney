@@ -15,6 +15,8 @@ import {
   requirementsHeading,
   formatRefreshCooldown,
   fmtLockI18n,
+  formatTradeLockDateDisplay,
+  lockedManualCardSubtitle,
   lockedManualItemNativeTitle,
   lockedManualItemToastMessage,
   type LangCode,
@@ -1296,6 +1298,11 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
             {item.wear}
           </span>
         )}
+        {manualLocked ? (
+          <p className="line-clamp-2 w-full px-0.5 text-center text-[9px] leading-snug text-orange-200/85">
+            {lockedManualCardSubtitle(item, l)}
+          </p>
+        ) : null}
         {showAssetId ? (
           <div
             className="flex w-full max-w-full items-center gap-1 px-0.5"
@@ -1355,6 +1362,12 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
             {!manualLocked ? (
               <span className="min-w-0 truncate">
                 {hasTimedLock ? fmtLockI18n(item.tradeLockUntil!, l) : "Locked"}
+              </span>
+            ) : item.tradeLockUntil?.trim() ? (
+              <span className="min-w-0 truncate" title={formatTradeLockDateDisplay(item.tradeLockUntil, l)}>
+                {new Date(item.tradeLockUntil) > new Date()
+                  ? fmtLockI18n(item.tradeLockUntil, l)
+                  : formatTradeLockDateDisplay(item.tradeLockUntil, l)}
               </span>
             ) : null}
           </div>

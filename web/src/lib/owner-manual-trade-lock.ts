@@ -95,7 +95,7 @@ export function buildOwnerLockOnlySnapshotFromParsedJson(
   if (parsed == null || typeof parsed !== "object") return [];
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Steam payload
-    return normalizeInventory(parsed as any, ownerSteamId);
+    return normalizeInventory(parsed as any, ownerSteamId, { ownerDescriptionsTradeLock: true });
   } catch {
     return [];
   }

@@ -1,5 +1,6 @@
 import { afterEach, describe, it, expect } from "vitest";
 import {
+  extractTradeLockDate,
   normalizeInventory,
   ownerInventoryErrorAllowsDefaultContextFallback,
   resolveOwnerInventoryContextId,
@@ -405,6 +406,91 @@ describe("detectTradeLock", () => {
   it("returns null when no trade-hold line is present", () => {
     expect(detectTradeLock([{ value: "Float Value: 0.15" }])).toBeNull();
     expect(detectTradeLock(undefined)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractTradeLockDate — owner_descriptions (context 16 export)
+// ---------------------------------------------------------------------------
+describe("extractTradeLockDate", () => {
+  it("parses Tradable After … GMT into ISO", () => {
+    const iso = extractTradeLockDate("Tradable After Sep 21, 2025 (7:00:00) GMT");
+    expect(iso).not.toBeNull();
+    expect(new Date(iso!).toISOString().slice(0, 10)).toBe("2025-09-21");
+  });
+
+  it("parses Steam trade-protected until … GMT line", () => {
+    const iso = extractTradeLockDate(
+      "⇆ This item is trade-protected and cannot be consumed, modified, or transferred until Apr 13, 2026 (7:00:00) GMT",
+    );
+    expect(iso).not.toBeNull();
+    expect(new Date(iso!).getUTCFullYear()).toBe(2026);
+    expect(new Date(iso!).getUTCMonth()).toBe(3);
+    expect(new Date(iso!).getUTCDate()).toBe(13);
+  });
+
+  it("returns null for unrelated text", () => {
+    expect(extractTradeLockDate("")).toBeNull();
+    expect(extractTradeLockDate("Float: 0.01")).toBeNull();
+    expect(extractTradeLockDate(undefined)).toBeNull();
+  });
+});
+
+describe("normalizeInventory — owner_descriptions (admin JSON only)", () => {
+  function minimalDesc(overrides: Record<string, unknown>) {
+    return {
+      classid: "C",
+      instanceid: "I",
+      market_hash_name: "Test",
+      name: "Test",
+      icon_url: "x",
+      tags: [],
+      ...overrides,
+    };
+  }
+
+  it("does not read owner_descriptions without flag (live Steam path unchanged)", () => {
+    const raw = {
+      assets: [{ assetid: "1", classid: "C", instanceid: "I", amount: "1" }],
+      descriptions: [
+        minimalDesc({
+          tradable: 1,
+          descriptions: [],
+          owner_descriptions: [
+            { type: "html", value: " " },
+            {
+              type: "html",
+              value: "Tradable After Jan 15, 2030 (12:00:00) GMT",
+            },
+          ],
+        }),
+      ],
+    };
+    const [item] = normalizeInventory(raw);
+    expect(item.tradeLockUntil).toBeNull();
+  });
+
+  it("sets tradeLockUntil from owner_descriptions when ownerDescriptionsTradeLock is true", () => {
+    const raw = {
+      assets: [{ assetid: "1", classid: "C", instanceid: "I", amount: "1" }],
+      descriptions: [
+        minimalDesc({
+          tradable: 0,
+          descriptions: [],
+          owner_descriptions: [
+            { type: "html", value: " " },
+            {
+              type: "html",
+              value: "⇆ trade-protected until Jun 01, 2028 (7:00:00) GMT",
+            },
+          ],
+        }),
+      ],
+    };
+    const [item] = normalizeInventory(raw, undefined, { ownerDescriptionsTradeLock: true });
+    expect(item.tradeLockUntil).not.toBeNull();
+    expect(new Date(item.tradeLockUntil!).getUTCFullYear()).toBe(2028);
+    expect(new Date(item.tradeLockUntil!).getUTCMonth()).toBe(5);
   });
 });
 

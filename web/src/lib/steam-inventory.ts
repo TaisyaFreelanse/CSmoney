@@ -396,6 +396,49 @@ function extractInspectLink(actions: Array<{ link?: string; name?: string }> | u
   return null;
 }
 
+/**
+ * Parse Steam English trade-hold line from `owner_descriptions[].value` (context 16 export).
+ * Primary: "Tradable After Sep 21, 2025 (7:00:00) GMT".
+ * Also handles common variant: "... until Apr 13, 2026 (7:00:00) GMT" (first `owner_descriptions` entry is often blank).
+ */
+export function extractTradeLockDate(text?: string | null): string | null {
+  if (text == null || typeof text !== "string") return null;
+  const t = text.trim();
+  if (!t) return null;
+
+  const tryParseGmt = (middle: string): string | null => {
+    const parsed = new Date(`${middle.trim()} GMT`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  };
+
+  let m = t.match(/Tradable After\s+(.+?)\s*GMT/i);
+  if (m) {
+    const iso = tryParseGmt(m[1]);
+    if (iso) return iso;
+  }
+
+  m = t.match(/\buntil\s+(.+?)\s*GMT/i);
+  if (m) {
+    const iso = tryParseGmt(m[1]);
+    if (iso) return iso;
+  }
+
+  return null;
+}
+
+function tradeLockFromOwnerDescriptions(desc: Record<string, unknown>): string | null {
+  const od = desc.owner_descriptions ?? desc.ownerDescriptions;
+  if (!Array.isArray(od)) return null;
+  for (const entry of od) {
+    if (!entry || typeof entry !== "object") continue;
+    const v = (entry as { value?: unknown }).value;
+    if (typeof v !== "string") continue;
+    const iso = extractTradeLockDate(v);
+    if (iso) return iso;
+  }
+  return null;
+}
+
 function detectTradeLock(
   descriptions: Array<{ value?: string; color?: string }> | undefined,
 ): string | null {
@@ -450,8 +493,20 @@ function rawInstanceId(obj: Record<string, unknown> | null | undefined): unknown
   return obj.instanceid ?? obj.instanceId;
 }
 
+export type NormalizeInventoryOptions = {
+  /**
+   * When true (admin pasted context-16 style JSON), read unlock time from `owner_descriptions`
+   * via {@link extractTradeLockDate}. Live Steam context-2 fetches must omit this flag.
+   */
+  ownerDescriptionsTradeLock?: boolean;
+};
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
-export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedItem[] {
+export function normalizeInventory(
+  raw: any,
+  ownerSteamId?: string,
+  options?: NormalizeInventoryOptions,
+): NormalizedItem[] {
   // New format: { assets: [...], descriptions: [...] }
   // Old format: { rgInventory: { assetid: {...} }, rgDescriptions: { classid_instanceid: {...} } }
   let assets: any[] = [];
@@ -509,7 +564,10 @@ export function normalizeInventory(raw: any, ownerSteamId?: string): NormalizedI
 
     const icon = desc.icon_url ? `${STEAM_CDN}${desc.icon_url}` : "";
     const { rarity, rarityColor } = rarityFromTags(desc.tags);
-    const tradeLockUntil = detectTradeLock(desc.descriptions);
+    const descRec = desc as Record<string, unknown>;
+    const fromOwner =
+      options?.ownerDescriptionsTradeLock === true ? tradeLockFromOwnerDescriptions(descRec) : null;
+    const tradeLockUntil = fromOwner ?? detectTradeLock(desc.descriptions);
 
     const itemName: string = desc.market_hash_name ?? desc.name ?? "";
 

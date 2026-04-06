@@ -15,6 +15,12 @@ const T: Translations = {
   platformInventory: { ru: "Инвентарь платформы", en: "Platform inventory", zh: "平台库存" },
   lockedUntilPrefix: { ru: "Заблокирован до", en: "Locked until", zh: "锁定至" },
   lockedNoDate: { ru: "Заблокировано", en: "Locked", zh: "已锁定" },
+  /** One-line hint on locked (admin) cards when `tradeLockUntil` is missing */
+  lockedCardLineNoDate: {
+    ru: "Этот предмет временно заблокирован",
+    en: "This item is temporarily locked",
+    zh: "该物品暂时锁定",
+  },
   lockedSelectToastWithDate: {
     ru: "Этот предмет заблокирован до {date}. Дождитесь разблокировки, после этого его можно будет добавить в обмен.",
     en: "This item is locked until {date}. Wait until it unlocks, then you can add it to a trade.",
@@ -26,9 +32,9 @@ const T: Translations = {
     zh: "该物品暂时无法交易。",
   },
   lockedTooltipUnlocksIn: {
-    ru: "Разблокировка примерно через: {time}",
-    en: "Unlocks in approximately: {time}",
-    zh: "约 {time} 后解锁",
+    ru: "Разблокируется через {time}",
+    en: "Unlocks in {time}",
+    zh: "{time} 后解锁",
   },
 
   loginPrompt: {
@@ -255,11 +261,20 @@ export function lockedManualItemToastMessage(
 
 export type LockedTitleItem = { name: string; tradeLockUntil?: string | null };
 
+/** Subtitle under the name on admin-locked inventory cards. */
+export function lockedManualCardSubtitle(item: LockedTitleItem, lang: LangCode): string {
+  const raw = item.tradeLockUntil?.trim();
+  if (raw) {
+    return `${t("lockedUntilPrefix", lang)} ${formatTradeLockDateDisplay(raw, lang)}`;
+  }
+  return t("lockedCardLineNoDate", lang);
+}
+
 /** Native `title` for locked owner cards (hover). */
 export function lockedManualItemNativeTitle(item: LockedTitleItem, lang: LangCode): string {
   const base = item.name;
   if (!item.tradeLockUntil?.trim()) {
-    return `${base} — ${t("lockedNoDate", lang)}`;
+    return `${base} — ${t("lockedCardLineNoDate", lang)}`;
   }
   const rel = fmtLockI18n(item.tradeLockUntil, lang);
   if (rel) {
