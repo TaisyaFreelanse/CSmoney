@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { OWNER_REFRESH_COOLDOWN_MS, USER_REFRESH_COOLDOWN_MS } from "@/lib/inventory-refresh-limits";
@@ -142,6 +143,7 @@ export default function TradePageClient({
   signedInNotice?: boolean;
   isAdmin?: boolean;
 } = {}) {
+  const router = useRouter();
   const [ownerItems, setOwnerItems] = useState<InventoryItem[]>([]);
   const [myItems, setMyItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -152,7 +154,6 @@ export default function TradePageClient({
   const [editingTradeUrl, setEditingTradeUrl] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [tradeSuccess, setTradeSuccess] = useState<string | null>(null);
 
   const [ownerRefreshing, setOwnerRefreshing] = useState(false);
   const [myRefreshing, setMyRefreshing] = useState(false);
@@ -366,7 +367,6 @@ export default function TradePageClient({
   const submitTrade = useCallback(async () => {
     setError(null);
     setTradeSubmitError(null);
-    setTradeSuccess(null);
     setSubmitting(true);
     try {
       const res = await fetch("/api/trades", {
@@ -395,11 +395,12 @@ export default function TradePageClient({
         setTradeSubmitError(data?.message ?? data?.error ?? t("errorGenericShort", lang));
         return;
       }
-      setTradeSuccess(t("tradeCreated", lang).replace("{id}", data.tradeId));
-      setSelectedMy(new Set()); setSelectedOwner(new Set());
+      setSelectedMy(new Set());
+      setSelectedOwner(new Set());
       if (data.ownerTradeUrl) window.open(data.ownerTradeUrl, "_blank");
+      router.push(`/trades/${data.tradeId}`);
     } finally { setSubmitting(false); }
-  }, [selectedMy, selectedOwner, lang, fmt]);
+  }, [selectedMy, selectedOwner, lang, fmt, router]);
 
   // ------ computed ------
   const selMyItems = myItems.filter((i) => selectedMy.has(i.assetId));
@@ -501,8 +502,13 @@ export default function TradePageClient({
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-4 py-2 sm:px-5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
-        <nav className="flex items-center gap-5 text-sm text-zinc-500">
+        <nav className="flex items-center gap-4 text-sm text-zinc-500 sm:gap-5">
           <span className="text-amber-500/90">{t("cs2Trade", lang)}</span>
+          {isLoggedIn ? (
+            <Link href="/trades" className="hover:text-amber-400/90">
+              {t("myTrades", lang)}
+            </Link>
+          ) : null}
         </nav>
         <div className="flex items-center gap-3">
           <LangCurrencyPicker
@@ -557,7 +563,6 @@ export default function TradePageClient({
           {tradeSubmitError}
         </div>
       )}
-      {tradeSuccess && <div className="bg-emerald-900/30 border-b border-emerald-800/40 px-5 py-2 text-sm text-emerald-400">{tradeSuccess}</div>}
 
       {/* 3-Column Layout — 1fr row fills flex-1 height (auto row was content-sized; center column stayed short) */}
       <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">

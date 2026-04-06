@@ -137,6 +137,32 @@ const T: Translations = {
     zh: "每侧最多{n}件物品",
   },
   tradeCreated: { ru: "Заявка #{id} создана!", en: "Trade #{id} created!", zh: "交易 #{id} 已创建！" },
+
+  myTrades: { ru: "Мои заявки", en: "My trades", zh: "我的申请" },
+  tradesPageTitle: { ru: "Заявки на обмен", en: "Trade requests", zh: "交易申请" },
+  tradesBackToTrade: { ru: "К обмену", en: "Back to trade", zh: "返回交易" },
+  tradesEmpty: { ru: "У вас пока нет заявок.", en: "You have no trade requests yet.", zh: "您还没有交易申请。" },
+  tradesLoginPrompt: { ru: "Войдите через Steam, чтобы видеть заявки.", en: "Sign in with Steam to see your trades.", zh: "请通过 Steam 登录以查看申请。" },
+  tradesLoadError: { ru: "Не удалось загрузить заявки", en: "Failed to load trades", zh: "加载申请失败" },
+  tradesLoading: { ru: "Загрузка…", en: "Loading…", zh: "加载中…" },
+  tradesYouGiveSide: { ru: "Вы отдаёте", en: "You give", zh: "您提供" },
+  tradesYouGetSide: { ru: "Вы получаете", en: "You get", zh: "您获得" },
+  tradesItemCount: { ru: "Предметов", en: "Items", zh: "物品数" },
+  tradesDate: { ru: "Дата", en: "Date", zh: "日期" },
+  tradesStatus: { ru: "Статус", en: "Status", zh: "状态" },
+  tradesId: { ru: "№", en: "ID", zh: "编号" },
+  tradesGuestTotal: { ru: "Ваша сумма", en: "Your total", zh: "您的总额" },
+  tradesOwnerTotal: { ru: "Сумма магазина", en: "Store total", zh: "商店总额" },
+  tradesNotFound: { ru: "Заявка не найдена", en: "Trade not found", zh: "未找到申请" },
+  tradesPolling: { ru: "Статус обновляется автоматически каждые ~8 с", en: "Status auto-refreshes about every 8s", zh: "状态约每 8 秒自动刷新" },
+  tradesFloat: { ru: "Float", en: "Float", zh: "磨损值" },
+  tradesWear: { ru: "Износ", en: "Wear", zh: "磨损" },
+
+  tradeStatus_pending: { ru: "Ожидает", en: "Pending", zh: "待处理" },
+  tradeStatus_accepted_by_admin: { ru: "Принято", en: "Accepted", zh: "已接受" },
+  tradeStatus_completed: { ru: "Завершено", en: "Completed", zh: "已完成" },
+  tradeStatus_cancelled: { ru: "Отменено", en: "Cancelled", zh: "已取消" },
+  tradeStatus_rejected: { ru: "Отклонено", en: "Rejected", zh: "已拒绝" },
   errorShop: { ru: "Магазин", en: "Shop", zh: "商店" },
   errorInventory: { ru: "Инвентарь", en: "Inventory", zh: "库存" },
   errorGeneric: { ru: "ошибка", en: "error", zh: "错误" },
@@ -180,6 +206,11 @@ const T: Translations = {
 
 export function t(key: string, lang: LangCode): string {
   return T[key]?.[lang] ?? T[key]?.en ?? key;
+}
+
+/** Prisma `TradeStatus` string value */
+export function tradeStatusLabel(status: string, lang: LangCode): string {
+  return t(`tradeStatus_${status}`, lang);
 }
 
 export function requirementsHeading(pending: number, lang: LangCode): string {

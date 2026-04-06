@@ -1,20 +1,45 @@
 /**
  * POST /api/trades — create a new trade request.
+ * GET /api/trades — list current user's trades (newest first).
+ *
  * Body: { guestItems: string[], ownerItems: string[] } — arrays of assetIds.
- * Server re-fetches prices to prevent client manipulation.
- * Returns trade ID and owner trade URL for redirect.
+ * Server re-resolves prices; snapshots names/float/wear/price on TradeItem rows.
  */
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
-import { getCached } from "@/lib/inventory-cache";
+import { buildOwnerPublicInventoryItems } from "@/lib/build-owner-public-inventory";
+import { getCached, setCache } from "@/lib/inventory-cache";
 import { centsCountedInTradeTotal, resolvePrice } from "@/lib/pricempire";
-import { fetchOwnerInventory, fetchGuestInventory } from "@/lib/steam-inventory";
-import type { NormalizedItem } from "@/lib/steam-inventory";
+import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { prisma } from "@/lib/prisma";
+import { serializeTradeSummary } from "@/lib/trade-api-serialize";
 import { checkTradeBalance, MAX_TRADE_ITEMS_PER_SIDE } from "@/lib/trade-balance";
+import { fetchGuestInventory } from "@/lib/steam-inventory";
+import type { NormalizedItem } from "@/lib/steam-inventory";
 
 export const dynamic = "force-dynamic";
+
+export async function GET() {
+  const user = await getSessionUser();
+  if (!user) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+  if (user.isBanned) {
+    return NextResponse.json({ error: "banned" }, { status: 403 });
+  }
+
+  const rows = await prisma.trade.findMany({
+    where: { creatorSteamId: user.steamId },
+    orderBy: { createdAt: "desc" },
+    take: 100,
+    include: { items: true },
+  });
+
+  return NextResponse.json({
+    trades: rows.map(serializeTradeSummary),
+  });
+}
 
 export async function POST(request: NextRequest) {
   const user = await getSessionUser();
@@ -70,22 +95,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ownerSteamId = process.env.OWNER_STEAM_ID;
-  if (!ownerSteamId) {
+  if (!process.env.OWNER_STEAM_ID) {
     return NextResponse.json({ error: "server_error" }, { status: 500 });
   }
 
-  // Load inventories (from cache or fresh)
-  let ownerInv: NormalizedItem[] | null = getCached(ownerSteamId);
-  if (!ownerInv) {
-    const res = await fetchOwnerInventory();
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: "owner_inventory_unavailable", message: "Инвентарь магазина недоступен" },
-        { status: 502 },
-      );
-    }
-    ownerInv = res.items;
+  const ownerBuild = await buildOwnerPublicInventoryItems();
+  if (!ownerBuild.ok) {
+    return NextResponse.json(
+      { error: "owner_inventory_unavailable", message: "Инвентарь магазина недоступен" },
+      { status: 502 },
+    );
   }
 
   let guestInv: NormalizedItem[] | null = getCached(user.steamId);
@@ -104,10 +123,12 @@ export async function POST(request: NextRequest) {
       );
     }
     guestInv = res.items;
+    setCache(user.steamId, guestInv);
   }
 
-  // Validate selected items exist in inventories
-  const ownerMap = new Map(ownerInv.map((i) => [i.assetId, i]));
+  const ownerMap = new Map<string, OwnerPublicInventoryRow>(
+    ownerBuild.items.map((i) => [i.assetId, i]),
+  );
   const guestMap = new Map(guestInv.map((i) => [i.assetId, i]));
 
   const missingOwner = ownerAssetIds.filter((id) => !ownerMap.has(id));
@@ -126,26 +147,52 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Check trade locks and price thresholds (incl. manual owner lock list)
+  const now = new Date();
+
   for (const id of ownerAssetIds) {
     const item = ownerMap.get(id)!;
-    if (!item.tradable) {
+    if (item.locked === true) {
       return NextResponse.json(
-        { error: "trade_locked", message: `Предмет "${item.name}" недоступен для обмена` },
+        {
+          error: "item_locked",
+          message: `Предмет «${item.name}» заблокирован и не может быть в заявке`,
+        },
         { status: 400 },
       );
     }
-    if (item.tradeLockUntil && new Date(item.tradeLockUntil) > new Date()) {
+    if (!item.tradable) {
       return NextResponse.json(
-        { error: "trade_locked", message: `Предмет "${item.name}" в трейдлоке` },
+        { error: "trade_locked", message: `Предмет «${item.name}» недоступен для обмена` },
+        { status: 400 },
+      );
+    }
+    if (item.tradeLockUntil && new Date(item.tradeLockUntil) > now) {
+      return NextResponse.json(
+        { error: "trade_locked", message: `Предмет «${item.name}» в трейдлоке` },
         { status: 400 },
       );
     }
   }
 
-  // Build trade items with server-side price recalculation
+  for (const id of guestAssetIds) {
+    const item = guestMap.get(id)!;
+    if (!item.tradable) {
+      return NextResponse.json(
+        { error: "guest_item_untradable", message: `Предмет «${item.name}» недоступен для обмена` },
+        { status: 400 },
+      );
+    }
+    if (item.tradeLockUntil && new Date(item.tradeLockUntil) > now) {
+      return NextResponse.json(
+        { error: "guest_item_trade_lock", message: `Предмет «${item.name}» в трейдлоке` },
+        { status: 400 },
+      );
+    }
+  }
+
   type TradeItemInput = {
     side: "owner" | "guest";
+    displayName: string;
     marketHashName: string | null;
     phaseLabel: string | null;
     assetId: string | null;
@@ -172,6 +219,7 @@ export async function POST(request: NextRequest) {
     guestTotalCents += centsCountedInTradeTotal(price);
     tradeItems.push({
       side: "guest",
+      displayName: item.name,
       marketHashName: item.marketHashName,
       phaseLabel: item.phaseLabel,
       assetId: item.assetId,
@@ -195,6 +243,7 @@ export async function POST(request: NextRequest) {
     ownerTotalCents += centsCountedInTradeTotal(price);
     tradeItems.push({
       side: "owner",
+      displayName: item.name,
       marketHashName: item.marketHashName,
       phaseLabel: item.phaseLabel,
       assetId: item.assetId,
@@ -205,6 +254,7 @@ export async function POST(request: NextRequest) {
       priceUsd: price.priceUsd,
     });
   }
+
   const balance = checkTradeBalance(guestTotalCents, ownerTotalCents);
   if (!balance.ok) {
     const payload: Record<string, unknown> = { error: balance.reason };
@@ -213,7 +263,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(payload, { status: 400 });
   }
 
-  // Create trade in DB
   const trade = await prisma.trade.create({
     data: {
       creatorSteamId: user.steamId,
@@ -221,6 +270,7 @@ export async function POST(request: NextRequest) {
       items: {
         create: tradeItems.map((ti) => ({
           side: ti.side,
+          displayName: ti.displayName,
           marketHashName: ti.marketHashName,
           phaseLabel: ti.phaseLabel,
           assetId: ti.assetId,
@@ -228,7 +278,7 @@ export async function POST(request: NextRequest) {
           instanceId: ti.instanceId,
           wear: ti.wear,
           floatValue: ti.floatValue,
-          priceUsd: ti.priceUsd / 100, // cents → dollars for Decimal field
+          priceUsd: ti.priceUsd / 100,
         })),
       },
     },

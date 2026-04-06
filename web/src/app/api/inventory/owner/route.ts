@@ -4,15 +4,9 @@
  */
 import { NextResponse } from "next/server";
 
-import { getCached, refreshCooldownRemainingOwner, setCache } from "@/lib/inventory-cache";
-import {
-  filterSteamItemsTradableForTradeTab,
-  getOwnerManualLockDisplayItems,
-  mergeOwnerSteamAndManualLockJson,
-  type OwnerPublicInventoryRow,
-} from "@/lib/owner-manual-trade-lock";
-import { fetchOwnerInventory } from "@/lib/steam-inventory";
-import type { NormalizedItem } from "@/lib/steam-inventory";
+import { buildOwnerPublicInventoryItems } from "@/lib/build-owner-public-inventory";
+import { refreshCooldownRemainingOwner } from "@/lib/inventory-cache";
+import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { resolvePrice } from "@/lib/pricempire";
 
 export const dynamic = "force-dynamic";
@@ -23,46 +17,33 @@ export async function GET() {
     return NextResponse.json({ error: "owner_not_configured" }, { status: 500 });
   }
 
-  let items: NormalizedItem[] | null = getCached(ownerSteamId);
-
-  if (!items) {
-    const result = await fetchOwnerInventory();
-    if (!result.ok) {
-      console.error("[/api/inventory/owner] fetch failed:", result.error);
-      const messages: Record<string, string> = {
-        empty_or_private_inventory:
-          "Инвентарь пуст или приватный. Откройте Steam → Профиль → Настройки приватности → Инвентарь: Открытый.",
-        private_inventory: "Инвентарь приватный. Измените настройки приватности в Steam.",
-        steam_rate_limit: "Steam ограничил запросы. Подождите минуту.",
-        missing_owner_steam_id: "Не задан OWNER_STEAM_ID на сервере.",
-      };
-      return NextResponse.json(
-        { error: result.error, message: messages[result.error] ?? result.error },
-        { status: 502 },
-      );
-    }
-    const raw = result.items;
-    const JUNK_TYPES = ["Loyalty Badge", "Collectible Coin", "Service Medal", "Season Coin"];
-    items = raw.filter((i) => {
-      if (!i.type) return true;
-      return !JUNK_TYPES.some((j) => i.type!.includes(j));
-    });
-    const locked = items.filter((i) => !i.tradable).length;
-    console.log(`[/api/inventory/owner] loaded ${raw.length} items → shown ${items.length} (hidden_junk=${raw.length - items.length}, tradable=false: ${locked})`);
-
-    setCache(ownerSteamId, items);
+  const built = await buildOwnerPublicInventoryItems();
+  if (!built.ok) {
+    console.error("[/api/inventory/owner] build failed:", built.error);
+    const messages: Record<string, string> = {
+      empty_or_private_inventory:
+        "Инвентарь пуст или приватный. Откройте Steam → Профиль → Настройки приватности → Инвентарь: Открытый.",
+      private_inventory: "Инвентарь приватный. Измените настройки приватности в Steam.",
+      steam_rate_limit: "Steam ограничил запросы. Подождите минуту.",
+      missing_owner_steam_id: "Не задан OWNER_STEAM_ID на сервере.",
+    };
+    return NextResponse.json(
+      { error: built.error, message: messages[built.error] ?? built.error },
+      { status: 502 },
+    );
   }
 
-  const steamTradable = filterSteamItemsTradableForTradeTab(items);
-  const manualLock = await getOwnerManualLockDisplayItems();
-  const merged = mergeOwnerSteamAndManualLockJson(steamTradable, manualLock);
+  const merged = built.items;
+  console.log(
+    `[/api/inventory/owner] merged ${merged.length} rows (manualLockCount=${built.manualLockCount})`,
+  );
 
   try {
     const enriched = await enrichWithPrices(merged, "owner");
     return NextResponse.json({
       items: enriched,
       count: enriched.length,
-      manualLockCount: manualLock.length,
+      manualLockCount: built.manualLockCount,
       refreshCooldownRemainingMs: refreshCooldownRemainingOwner(ownerSteamId),
     });
   } catch (e) {
@@ -70,7 +51,7 @@ export async function GET() {
     return NextResponse.json({
       items: merged.map((i) => ({ ...i, priceUsd: 0, priceSource: "unavailable" as const, belowThreshold: true })),
       count: merged.length,
-      manualLockCount: manualLock.length,
+      manualLockCount: built.manualLockCount,
       refreshCooldownRemainingMs: refreshCooldownRemainingOwner(ownerSteamId),
     });
   }

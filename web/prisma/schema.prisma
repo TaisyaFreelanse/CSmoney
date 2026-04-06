@@ -15,6 +15,7 @@ enum TradeStatus {
   accepted_by_admin
   completed
   cancelled
+  rejected
 }
 
 enum TradeItemSide {
@@ -54,6 +55,8 @@ model TradeItem {
   tradeId        String
   trade          Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   side           TradeItemSide
+  /** Display name at submission time (Steam `name` / card title). */
+  displayName    String?
   marketHashName String?
   phaseLabel     String?
   assetId        String?

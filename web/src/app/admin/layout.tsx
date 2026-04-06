@@ -22,9 +22,21 @@ export default async function AdminLayout({
             {user.displayName ?? user.steamId}
           </p>
         </div>
-        <nav className="flex gap-3 text-sm">
+        <nav className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
           <Link href="/admin" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
             Обзор
+          </Link>
+          <Link
+            href="/admin/trades"
+            className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            Заявки
+          </Link>
+          <Link
+            href="/admin/users"
+            className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+          >
+            Пользователи
           </Link>
           <Link href="/admin/pricing" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
             Цены
@@ -34,9 +46,6 @@ export default async function AdminLayout({
             className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           >
             Трейдлок
-          </Link>
-          <Link href="/" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-            Трейд
           </Link>
           <Link href="/" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
             На сайт
