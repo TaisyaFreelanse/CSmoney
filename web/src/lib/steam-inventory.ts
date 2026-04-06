@@ -23,6 +23,18 @@ export function resolveOwnerInventoryContextId(): string {
   return DEFAULT_CS2_INVENTORY_CONTEXT_ID;
 }
 
+/**
+ * Steam community inventory from datacenter IPs often returns empty / private for non-default contexts (e.g. 16),
+ * while the browser (logged in) gets full JSON. If the preferred context fails this way, we fall back to 2.
+ */
+export function ownerInventoryErrorAllowsDefaultContextFallback(error: string): boolean {
+  return (
+    error.includes("empty_inventory") ||
+    error.includes("private_inventory") ||
+    error.includes("community_old_error")
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -687,7 +699,17 @@ export async function fetchOwnerInventory(): Promise<
 
   const ctx = resolveOwnerInventoryContextId();
   console.log(`[steam-inv] fetchOwnerInventory steamId=${ownerSteamId} context=${ctx}`);
-  const result = await fetchSteamInventoryRaw(ownerSteamId, ctx);
+  let result = await fetchSteamInventoryRaw(ownerSteamId, ctx);
+  if (
+    !result.ok &&
+    ctx !== DEFAULT_CS2_INVENTORY_CONTEXT_ID &&
+    ownerInventoryErrorAllowsDefaultContextFallback(result.error)
+  ) {
+    console.warn(
+      `[steam-inv] owner context=${ctx} failed (${result.error}) — Steam usually does not serve this context to servers like on the web with a session; retrying context=${DEFAULT_CS2_INVENTORY_CONTEXT_ID}`,
+    );
+    result = await fetchSteamInventoryRaw(ownerSteamId, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
+  }
   if (!result.ok) return result;
   return { ok: true, items: normalizeInventory(result.data, ownerSteamId) };
 }

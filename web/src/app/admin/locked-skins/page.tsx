@@ -114,8 +114,8 @@ export default function AdminLockedSkinsPage() {
         <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
           Вставьте сырой JSON из браузера (Network → ответ Steam): и отформатированный, и минифицированный подходят.
           Логин Steam на сервере не нужен. Список действует только на инвентарь <strong className="text-zinc-800 dark:text-zinc-200">магазина</strong> (колонка «Вы получаете»), тот же Steam ID, что в <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">OWNER_STEAM_ID</code>.
-          Если в JSON у слотов <code className="text-xs">&quot;contextid&quot;:&quot;16&quot;</code>, на сервере в Render задайте переменную окружения{" "}
-          <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">OWNER_INVENTORY_CONTEXT_ID=16</code> — иначе сайт грузит инвентарь с контекстом 2, и <code className="text-xs">assetid</code> / пары class+instance из файла не совпадут с витриной (лок не появится). Дополнительно всё равно матчим пары <code className="text-xs">classid + instanceid</code>.
+          Не включайте на Render <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">OWNER_INVENTORY_CONTEXT_ID=16</code>: с датацентра Steam почти не отдаёт контекст 16 (пустой JSON / private / лимиты), инвентарь магазина пропадёт. Браузер с вашей сессией и сервер — разные условия. Сайт грузит магазин с контекста{" "}
+          <strong>2</strong>; вставленный JSON (в т.ч. с <code className="text-xs">contextid 16</code> в файле) сопоставляем по <code className="text-xs">assetid</code> и <code className="text-xs">classid + instanceid</code> с этим списком. Если лок не цепляется — чаще всего выгрузка с другого Steam, чем <code className="text-xs">OWNER_STEAM_ID</code>.
           После обновления сайта нажмите «Сохранить в БД» ещё раз с тем же JSON. Список в БД перекрывает файл{" "}
           <code className="rounded bg-zinc-200 px-1 text-xs dark:bg-zinc-800">data/owner-manual-trade-lock.json</code>.
         </p>

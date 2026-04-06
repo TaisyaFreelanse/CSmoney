@@ -1,5 +1,10 @@
 import { afterEach, describe, it, expect } from "vitest";
-import { normalizeInventory, resolveOwnerInventoryContextId, _testing } from "../steam-inventory";
+import {
+  normalizeInventory,
+  ownerInventoryErrorAllowsDefaultContextFallback,
+  resolveOwnerInventoryContextId,
+  _testing,
+} from "../steam-inventory";
 
 const {
   isDopplerFamilySkin,
@@ -431,5 +436,18 @@ describe("resolveOwnerInventoryContextId", () => {
   it("ignores invalid value", () => {
     process.env.OWNER_INVENTORY_CONTEXT_ID = "not-a-context";
     expect(resolveOwnerInventoryContextId()).toBe("2");
+  });
+});
+
+describe("ownerInventoryErrorAllowsDefaultContextFallback", () => {
+  it("true for empty / private / old-json errors", () => {
+    expect(ownerInventoryErrorAllowsDefaultContextFallback("all_failed(new:empty_inventory,old:private_inventory)")).toBe(
+      true,
+    );
+    expect(ownerInventoryErrorAllowsDefaultContextFallback("community_old_error")).toBe(true);
+  });
+
+  it("false for unrelated errors", () => {
+    expect(ownerInventoryErrorAllowsDefaultContextFallback("steam_rate_limit")).toBe(false);
   });
 });
