@@ -1729,36 +1729,23 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
           />
         )}
 
-        {/* Hover: fade only (absolute — no layout shift). Full name + wear + float — not duplicated in footer */}
+        {/* Hover: full name + wear only (float track stays in footer — avoids duplicate bars). */}
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 z-[22] rounded-b-md bg-gradient-to-t from-zinc-950/95 via-zinc-950/75 to-transparent opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100"
           aria-hidden
         />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[24] max-h-[55%] overflow-hidden px-1.5 pb-1 pt-4 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[24] max-h-[45%] overflow-hidden px-1.5 pb-1 pt-3 opacity-0 transition-opacity duration-200 ease-out group-hover:opacity-100">
           <p
             className="break-words text-center text-[8px] font-semibold leading-snug text-zinc-50 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)] line-clamp-4"
             style={{ color: nameColor }}
           >
             {item.name}
+            {item.phaseLabel && !item.name.toLowerCase().includes(item.phaseLabel.toLowerCase()) ? (
+              <span className={`font-bold ${phaseTextColor(item.phaseLabel)}`}> · {item.phaseLabel}</span>
+            ) : null}
           </p>
           {item.wear ? (
             <p className="mt-1 truncate text-center text-[8px] font-medium text-zinc-200/95 drop-shadow-sm">{item.wear}</p>
-          ) : null}
-          {item.floatValue != null ? (
-            <div className="mt-1 space-y-0.5">
-              <p className="text-center text-[8px] leading-none text-zinc-300">
-                <span className="text-zinc-500">Float </span>
-                <span className="font-mono font-medium tabular-nums text-zinc-100">
-                  {item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}
-                </span>
-              </p>
-              <div className="h-0.5 w-full overflow-hidden rounded-full bg-zinc-800/90 shadow-inner">
-                <div
-                  className="h-full rounded-full transition-[width] duration-200"
-                  style={{ width: `${Math.min(item.floatValue * 100, 100)}%`, backgroundColor: floatBarColor(item.floatValue) }}
-                />
-              </div>
-            </div>
           ) : null}
         </div>
 
@@ -1784,13 +1771,8 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         {item.inspectLink ? <InspectInGameButton href={item.inspectLink} lang={l} /> : null}
       </div>
 
-      {/* Footer ~30% — hierarchy: stickers → short name (hidden on hover) → price */}
+      {/* Footer ~30% — stickers → name+phase (one block, hover hides) → float track → price */}
       <div className="relative flex min-h-0 flex-[3] flex-col justify-end gap-1 px-1.5 pb-1 pt-0.5">
-        {item.phaseLabel ? (
-          <div className="flex min-h-[12px] items-center justify-center">
-            <span className={`truncate text-[8px] font-bold leading-none ${phaseTextColor(item.phaseLabel)}`}>{item.phaseLabel}</span>
-          </div>
-        ) : null}
         {manualLocked ? (
           <p
             className="line-clamp-1 w-full text-center text-[7px] leading-tight text-orange-200/90 transition-opacity duration-200 group-hover:opacity-0"
@@ -1861,11 +1843,36 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         ) : null}
 
         <p
-          className="min-h-[13px] w-full truncate text-center text-[8px] font-semibold leading-tight text-zinc-200 transition-opacity duration-200 ease-out opacity-100 group-hover:opacity-0"
+          className="line-clamp-2 min-h-[26px] w-full text-center text-[8px] font-semibold leading-snug text-zinc-200 transition-opacity duration-200 ease-out opacity-100 group-hover:opacity-0"
           style={{ color: nameColor }}
         >
           {item.name}
+          {item.phaseLabel && !item.name.toLowerCase().includes(item.phaseLabel.toLowerCase()) ? (
+            <span className={`font-bold ${phaseTextColor(item.phaseLabel)}`}> · {item.phaseLabel}</span>
+          ) : null}
         </p>
+
+        {item.floatValue != null ? (
+          <div className="flex min-h-[22px] flex-col justify-end gap-0.5">
+            <p className="text-center text-[8px] leading-none text-zinc-500">
+              <span className="text-zinc-600">F </span>
+              <span className="font-mono font-medium tabular-nums text-zinc-200">
+                {item.floatValue.toFixed(item.floatValue < 0.01 ? 6 : 4)}
+              </span>
+            </p>
+            <div className="h-1 w-full overflow-hidden rounded-full bg-zinc-700/80 ring-1 ring-zinc-900/80">
+              <div
+                className="h-full min-w-px rounded-full"
+                style={{
+                  width: `${floatBarFillPercent(item.floatValue)}%`,
+                  backgroundColor: floatBarColor(item.floatValue),
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <div className="min-h-[22px] shrink-0" aria-hidden />
+        )}
 
         <div className="flex min-h-[18px] items-end justify-between gap-1 border-t border-zinc-800/40 pt-0.5">
           {item.priceSource === "unavailable" || isUnavailable ? (
@@ -1910,5 +1917,12 @@ function floatBarColor(f: number): string {
   if (f < 0.38) return "#eab308";
   if (f < 0.45) return "#f97316";
   return "#ef4444";
+}
+
+/** Visible fill on 0–1 wear scale (raw % is tiny for FN floats and looked “missing” on narrow cards). */
+function floatBarFillPercent(f: number): number {
+  if (f == null || Number.isNaN(f) || f <= 0) return 0;
+  const raw = Math.min(f * 100, 100);
+  return Math.max(raw, 14);
 }
 
