@@ -12,7 +12,7 @@ import { getSessionUser } from "@/lib/auth";
 import { tradeWhereFromAdminStatusTab } from "@/lib/admin-trade-list";
 import { buildOwnerPublicInventoryItems } from "@/lib/build-owner-public-inventory";
 import { getCached, setCache } from "@/lib/inventory-cache";
-import { centsCountedInTradeTotal, resolvePrice } from "@/lib/pricempire";
+import { centsCountedInTradeTotal, resolvePricesBatch } from "@/lib/pricempire";
 import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { prisma } from "@/lib/prisma";
 import { serializeTradeSummary } from "@/lib/trade-api-serialize";
@@ -253,9 +253,18 @@ export async function POST(request: NextRequest) {
   let guestTotalCents = 0;
   let ownerTotalCents = 0;
 
-  for (const id of guestAssetIds) {
-    const item = guestMap.get(id)!;
-    const price = await resolvePrice(item.marketHashName, item.phaseLabel, item.assetId, "guest");
+  const guestRows = guestAssetIds.map((id) => guestMap.get(id)!);
+  const guestPrices = await resolvePricesBatch(
+    guestRows.map((item) => ({
+      marketHashName: item.marketHashName,
+      phaseLabel: item.phaseLabel,
+      assetId: item.assetId,
+    })),
+    "guest",
+  );
+  for (let i = 0; i < guestRows.length; i++) {
+    const item = guestRows[i]!;
+    const price = guestPrices[i]!;
     if (price.source === "unavailable") {
       return NextResponse.json(
         { error: "price_unavailable", message: `Нет цены для предмета: ${item.name}` },
@@ -277,9 +286,18 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  for (const id of ownerAssetIds) {
-    const item = ownerMap.get(id)!;
-    const price = await resolvePrice(item.marketHashName, item.phaseLabel, item.assetId, "owner");
+  const ownerRows = ownerAssetIds.map((id) => ownerMap.get(id)!);
+  const ownerPrices = await resolvePricesBatch(
+    ownerRows.map((item) => ({
+      marketHashName: item.marketHashName,
+      phaseLabel: item.phaseLabel,
+      assetId: item.assetId,
+    })),
+    "owner",
+  );
+  for (let i = 0; i < ownerRows.length; i++) {
+    const item = ownerRows[i]!;
+    const price = ownerPrices[i]!;
     if (price.source === "unavailable") {
       return NextResponse.json(
         { error: "price_unavailable", message: `Нет цены для предмета: ${item.name}` },

@@ -15,7 +15,7 @@ import {
 } from "@/lib/owner-inventory-api-constants";
 import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { refreshOwnerSteamItemsInCache } from "@/lib/owner-steam-cache-refresh";
-import { resolvePrice } from "@/lib/pricempire";
+import { resolvePricesBatch } from "@/lib/pricempire";
 
 export const dynamic = "force-dynamic";
 
@@ -101,20 +101,19 @@ export async function GET(request: NextRequest) {
 }
 
 async function enrichWithPrices(items: OwnerPublicInventoryRow[], side: "owner" | "guest") {
-  return Promise.all(
-    items.map(async (item) => {
-      const resolved = await resolvePrice(
-        item.marketHashName,
-        item.phaseLabel,
-        item.assetId,
-        side,
-      );
-      return {
-        ...item,
-        priceUsd: resolved.priceUsd,
-        priceSource: resolved.source,
-        belowThreshold: resolved.belowThreshold,
-      };
-    }),
-  );
+  const keys = items.map((item) => ({
+    marketHashName: item.marketHashName,
+    phaseLabel: item.phaseLabel,
+    assetId: item.assetId,
+  }));
+  const resolved = await resolvePricesBatch(keys, side);
+  return items.map((item, i) => {
+    const r = resolved[i]!;
+    return {
+      ...item,
+      priceUsd: r.priceUsd,
+      priceSource: r.source,
+      belowThreshold: r.belowThreshold,
+    };
+  });
 }

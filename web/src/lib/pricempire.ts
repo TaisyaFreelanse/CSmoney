@@ -147,47 +147,36 @@ export function centsCountedInTradeTotal(p: ResolvedPrice): number {
   return p.priceUsd;
 }
 
-export async function resolvePrice(
+type PricingSettingsRow = Awaited<ReturnType<typeof _loadSettings>>;
+type OwnerManualRow = Awaited<ReturnType<typeof prisma.ownerManualPrice.findMany>>[number];
+type CatalogRow = Awaited<ReturnType<typeof prisma.priceCatalogItem.findMany>>[number];
+
+function catalogCellKey(marketHashName: string, phaseKey: string) {
+  return `${marketHashName}\0${phaseKey}`;
+}
+
+function pickCatalogRow(
+  map: Map<string, CatalogRow>,
   marketHashName: string,
-  phaseLabel: string | null,
-  assetId: string | null,
-  side: "owner" | "guest",
-): Promise<ResolvedPrice> {
-  const settings = await getPricingSettings();
-
-  const manual =
-    side === "owner" && assetId
-      ? await prisma.ownerManualPrice.findUnique({ where: { assetId } })
-      : null;
-
-  const phaseKey = phaseLabel ?? "default";
-  const provider = settings.selectedPriceProvider;
-
-  let catalogItem = await prisma.priceCatalogItem.findUnique({
-    where: {
-      marketHashName_phaseKey_providerKey: {
-        marketHashName,
-        phaseKey,
-        providerKey: provider,
-      },
-    },
-  });
-
-  if (!catalogItem && phaseKey !== "default") {
-    catalogItem = await prisma.priceCatalogItem.findUnique({
-      where: {
-        marketHashName_phaseKey_providerKey: {
-          marketHashName,
-          phaseKey: "default",
-          providerKey: provider,
-        },
-      },
-    });
+  phaseKey: string,
+): CatalogRow | null {
+  const exact = map.get(catalogCellKey(marketHashName, phaseKey));
+  if (exact) return exact;
+  if (phaseKey !== "default") {
+    return map.get(catalogCellKey(marketHashName, "default")) ?? null;
   }
+  return null;
+}
 
+/** Same rules as the old per-item path; used by batch and resolvePrice. */
+function computeResolvedPrice(
+  settings: PricingSettingsRow,
+  side: "owner" | "guest",
+  manual: OwnerManualRow | null | undefined,
+  catalogItem: CatalogRow | null,
+): ResolvedPrice {
   const manualMode = manual?.mode === "markup_percent" ? "markup_percent" : "fixed";
 
-  // Fixed USD override — no catalog required
   if (manual && manualMode === "fixed" && manual.priceUsd != null) {
     const dollars = Number(manual.priceUsd);
     if (dollars > 0) {
@@ -206,7 +195,6 @@ export async function resolvePrice(
   const baseCents = catalogItem.priceUsd;
   const baseDollars = baseCents / 100;
 
-  // Extra % on catalog (after global owner markup), still counts as manual for UI
   if (manual && manualMode === "markup_percent" && manual.markupPercent != null) {
     const withOwner = Math.round(baseCents * (1 + settings.markupOwnerPercent / 100));
     const finalCents = Math.round(withOwner * (1 + manual.markupPercent / 100));
@@ -221,14 +209,65 @@ export async function resolvePrice(
     return { priceUsd: baseCents, source: "catalog", belowThreshold: true };
   }
 
-  const markup =
-    side === "owner"
-      ? settings.markupOwnerPercent
-      : settings.markupGuestPercent;
-
+  const markup = side === "owner" ? settings.markupOwnerPercent : settings.markupGuestPercent;
   const finalCents = Math.round(baseCents * (1 + markup / 100));
-
   return { priceUsd: finalCents, source: "catalog", belowThreshold: false };
+}
+
+/**
+ * Resolve prices for many items with O(1) DB round-trips (settings cache + 2× findMany),
+ * instead of ~3 queries per item.
+ */
+export async function resolvePricesBatch(
+  items: Array<{ marketHashName: string; phaseLabel: string | null; assetId: string | null }>,
+  side: "owner" | "guest",
+): Promise<ResolvedPrice[]> {
+  if (items.length === 0) return [];
+
+  const settings = await getPricingSettings();
+  const provider = settings.selectedPriceProvider;
+
+  const assetIds =
+    side === "owner"
+      ? [...new Set(items.map((i) => i.assetId).filter((id): id is string => Boolean(id)))]
+      : [];
+
+  const nameList = [...new Set(items.map((i) => i.marketHashName))].filter((n) => n.length > 0);
+
+  const [manualRows, catalogRows] = await Promise.all([
+    assetIds.length > 0
+      ? prisma.ownerManualPrice.findMany({ where: { assetId: { in: assetIds } } })
+      : Promise.resolve([]),
+    nameList.length > 0
+      ? prisma.priceCatalogItem.findMany({
+          where: { providerKey: provider, marketHashName: { in: nameList } },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const manualByAsset = new Map(manualRows.map((m) => [m.assetId, m]));
+  const catalogMap = new Map<string, CatalogRow>();
+  for (const row of catalogRows) {
+    catalogMap.set(catalogCellKey(row.marketHashName, row.phaseKey), row);
+  }
+
+  return items.map((item) => {
+    const phaseKey = item.phaseLabel ?? "default";
+    const manual =
+      side === "owner" && item.assetId ? manualByAsset.get(item.assetId) : undefined;
+    const catalogItem = pickCatalogRow(catalogMap, item.marketHashName, phaseKey);
+    return computeResolvedPrice(settings, side, manual, catalogItem);
+  });
+}
+
+export async function resolvePrice(
+  marketHashName: string,
+  phaseLabel: string | null,
+  assetId: string | null,
+  side: "owner" | "guest",
+): Promise<ResolvedPrice> {
+  const [one] = await resolvePricesBatch([{ marketHashName, phaseLabel, assetId }], side);
+  return one!;
 }
 
 let _settingsCache: {

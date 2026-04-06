@@ -9,7 +9,7 @@ import { getSessionUser } from "@/lib/auth";
 import { getCached, refreshCooldownRemainingUser, setCache } from "@/lib/inventory-cache";
 import { fetchGuestInventory, fetchOwnerInventory } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
-import { resolvePrice } from "@/lib/pricempire";
+import { resolvePricesBatch } from "@/lib/pricempire";
 
 export const dynamic = "force-dynamic";
 
@@ -56,24 +56,20 @@ export async function GET() {
   });
 }
 
-async function enrichWithPrices(
-  items: NormalizedItem[],
-  side: "owner" | "guest",
-) {
-  return Promise.all(
-    items.map(async (item) => {
-      const resolved = await resolvePrice(
-        item.marketHashName,
-        item.phaseLabel,
-        item.assetId,
-        side,
-      );
-      return {
-        ...item,
-        priceUsd: resolved.priceUsd,
-        priceSource: resolved.source,
-        belowThreshold: resolved.belowThreshold,
-      };
-    }),
-  );
+async function enrichWithPrices(items: NormalizedItem[], side: "owner" | "guest") {
+  const keys = items.map((item) => ({
+    marketHashName: item.marketHashName,
+    phaseLabel: item.phaseLabel,
+    assetId: item.assetId,
+  }));
+  const resolved = await resolvePricesBatch(keys, side);
+  return items.map((item, i) => {
+    const r = resolved[i]!;
+    return {
+      ...item,
+      priceUsd: r.priceUsd,
+      priceSource: r.source,
+      belowThreshold: r.belowThreshold,
+    };
+  });
 }
