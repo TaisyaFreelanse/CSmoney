@@ -3,7 +3,7 @@
  * Stale-while-revalidate on Steam snapshot: stale cache is served immediately;
  * background refresh runs via `after()` when the snapshot was stale.
  *
- * Query: limit (default 30, max 200), offset (default 0).
+ * Query: limit (default 30, max see OWNER_INVENTORY_PAGE_MAX), offset (default 0).
  */
 import { after, NextRequest, NextResponse } from "next/server";
 

@@ -22,7 +22,7 @@ import {
   type LangCode,
 } from "@/lib/i18n";
 import { DEFAULT_FX_RATES, type SupportedFxCode } from "@/lib/fx-rates";
-import { OWNER_INVENTORY_PAGE_DEFAULT } from "@/lib/owner-inventory-api-constants";
+import { OWNER_INVENTORY_PAGE_MAX } from "@/lib/owner-inventory-api-constants";
 
 import styles from "./page.module.css";
 
@@ -346,7 +346,8 @@ export default function TradePageClient({
   // ------ loaders ------
   const loadOwner = useCallback(
     async (signal?: AbortSignal) => {
-      const limit = OWNER_INVENTORY_PAGE_DEFAULT;
+      /** One HTTP round-trip for typical shops; extra iterations only if total > OWNER_INVENTORY_PAGE_MAX. */
+      const pageLimit = OWNER_INVENTORY_PAGE_MAX;
       const all: InventoryItem[] = [];
       let offset = 0;
       let lastCooldownMs: number | undefined;
@@ -354,7 +355,7 @@ export default function TradePageClient({
       for (;;) {
         if (signal?.aborted) return;
         const qs = new URLSearchParams({
-          limit: String(limit),
+          limit: String(pageLimit),
           offset: String(offset),
         });
         let res: Response;
@@ -393,7 +394,7 @@ export default function TradePageClient({
             ? data.hasMore
             : typeof data.total === "number"
               ? offset + batch.length < data.total
-              : batch.length >= limit;
+              : batch.length >= pageLimit;
         if (!hasMore || batch.length === 0) break;
         offset += batch.length;
         if (offset > 100_000) break;
