@@ -92,6 +92,49 @@ const WEAR_SHORT: Record<string, string> = {
   "Battle-Scarred": "BS",
 };
 
+const INV_FILTERS_STORAGE_KEY = "chez_inventory_filters_v1";
+
+function isStatTrakItem(i: Pick<InventoryItem, "name" | "marketHashName">): boolean {
+  return /stattrak/i.test(i.name) || /stattrak/i.test(i.marketHashName);
+}
+
+function isSouvenirItem(i: Pick<InventoryItem, "name" | "marketHashName">): boolean {
+  return /\bsouvenir\b/i.test(i.name) || /\bsouvenir\b/i.test(i.marketHashName);
+}
+
+function isItemTradeLocked(i: InventoryItem): boolean {
+  if (i.locked === true) return true;
+  const hasTimed = !!i.tradeLockUntil && new Date(i.tradeLockUntil) > new Date();
+  return !i.tradable || hasTimed;
+}
+
+function parseUsdToCentsBound(raw: string): number | null {
+  const t = raw.trim().replace(",", ".");
+  if (!t) return null;
+  const v = parseFloat(t);
+  if (!Number.isFinite(v) || v < 0) return null;
+  return Math.round(v * 100);
+}
+
+type InvFiltersPersisted = {
+  showStatTrak?: boolean;
+  showSouvenir?: boolean;
+  showTradeLocked?: boolean;
+  priceMinStr?: string;
+  priceMaxStr?: string;
+  floatMin?: number;
+  floatMax?: number;
+};
+
+function readInvFiltersPersisted(): InvFiltersPersisted | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return JSON.parse(localStorage.getItem(INV_FILTERS_STORAGE_KEY) || "null") as InvFiltersPersisted | null;
+  } catch {
+    return null;
+  }
+}
+
 const SORT_KEYS = [
   { key: "price-desc", i18n: "sortPriceDesc" },
   { key: "price-asc", i18n: "sortPriceAsc" },
@@ -185,6 +228,61 @@ export default function TradePageClient({
   // Center filters (apply to both panels)
   const [category, setCategory] = useState("All");
   const [wear, setWear] = useState("All");
+
+  const [invShowStatTrak, setInvShowStatTrak] = useState(true);
+  const [invShowSouvenir, setInvShowSouvenir] = useState(true);
+  const [invShowTradeLocked, setInvShowTradeLocked] = useState(true);
+  const [invPriceMinStr, setInvPriceMinStr] = useState("");
+  const [invPriceMaxStr, setInvPriceMaxStr] = useState("");
+  const [invFloatMin, setInvFloatMin] = useState(0);
+  const [invFloatMax, setInvFloatMax] = useState(1);
+  const [invFiltersHydrated, setInvFiltersHydrated] = useState(false);
+
+  useEffect(() => {
+    const p = readInvFiltersPersisted();
+    if (p) {
+      if (typeof p.showStatTrak === "boolean") setInvShowStatTrak(p.showStatTrak);
+      if (typeof p.showSouvenir === "boolean") setInvShowSouvenir(p.showSouvenir);
+      if (typeof p.showTradeLocked === "boolean") setInvShowTradeLocked(p.showTradeLocked);
+      if (typeof p.priceMinStr === "string") setInvPriceMinStr(p.priceMinStr);
+      if (typeof p.priceMaxStr === "string") setInvPriceMaxStr(p.priceMaxStr);
+      let fMin = 0;
+      let fMax = 1;
+      if (typeof p.floatMin === "number" && Number.isFinite(p.floatMin)) fMin = Math.max(0, Math.min(1, p.floatMin));
+      if (typeof p.floatMax === "number" && Number.isFinite(p.floatMax)) fMax = Math.max(0, Math.min(1, p.floatMax));
+      if (fMin > fMax) [fMin, fMax] = [fMax, fMin];
+      setInvFloatMin(fMin);
+      setInvFloatMax(fMax);
+    }
+    setInvFiltersHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!invFiltersHydrated) return;
+    const payload: InvFiltersPersisted = {
+      showStatTrak: invShowStatTrak,
+      showSouvenir: invShowSouvenir,
+      showTradeLocked: invShowTradeLocked,
+      priceMinStr: invPriceMinStr,
+      priceMaxStr: invPriceMaxStr,
+      floatMin: invFloatMin,
+      floatMax: invFloatMax,
+    };
+    try {
+      localStorage.setItem(INV_FILTERS_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      /* ignore quota */
+    }
+  }, [
+    invFiltersHydrated,
+    invShowStatTrak,
+    invShowSouvenir,
+    invShowTradeLocked,
+    invPriceMinStr,
+    invPriceMaxStr,
+    invFloatMin,
+    invFloatMax,
+  ]);
 
   // Language & Currency
   const [currency, setCurrency] = useState<CurrencyCode>(() => {
@@ -645,6 +743,24 @@ export default function TradePageClient({
   }
   const pendingRequirements = requirementRows.filter((r) => !r.done).length;
 
+  function matchesInvFilters(item: InventoryItem): boolean {
+    if (isStatTrakItem(item) && !invShowStatTrak) return false;
+    if (isSouvenirItem(item) && !invShowSouvenir) return false;
+    if (isItemTradeLocked(item) && !invShowTradeLocked) return false;
+
+    const minC = parseUsdToCentsBound(invPriceMinStr);
+    const maxC = parseUsdToCentsBound(invPriceMaxStr);
+    if (minC != null && item.priceUsd < minC) return false;
+    if (maxC != null && item.priceUsd > maxC) return false;
+
+    const floatActive = invFloatMin > 0 || invFloatMax < 1;
+    if (floatActive) {
+      if (item.floatValue == null) return false;
+      if (item.floatValue < invFloatMin || item.floatValue > invFloatMax) return false;
+    }
+    return true;
+  }
+
   function sortItems(items: InventoryItem[], s: string) {
     return [...items].sort((a, b) => {
       switch (s) {
@@ -694,12 +810,14 @@ export default function TradePageClient({
   function filterMy(items: InventoryItem[], q: string, s: string) {
     let r = items;
     if (q.trim()) { const ql = q.toLowerCase(); r = r.filter((i) => i.name.toLowerCase().includes(ql) || i.marketHashName.toLowerCase().includes(ql)); }
+    r = r.filter(matchesInvFilters);
     return sortItems(r, s);
   }
 
   function filterOwner(items: InventoryItem[], q: string, s: string) {
     let r = items;
     if (q.trim()) { const ql = q.toLowerCase(); r = r.filter((i) => i.name.toLowerCase().includes(ql) || i.marketHashName.toLowerCase().includes(ql)); }
+    r = r.filter(matchesInvFilters);
     if (category === "Weapon") {
       r = r.filter((i) => WEAPON_TYPES.some((wt) => i.type?.includes(wt)));
     } else if (category !== "All") {
@@ -975,6 +1093,132 @@ export default function TradePageClient({
 
             {/* Divider */}
             <div className="border-t border-zinc-800/50" />
+
+            {/* StatTrak / Souvenir / trade lock + price + float (client-side, both inventories) */}
+            <div className="min-w-0 space-y-2 rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2 py-2">
+              <div className="flex flex-col gap-1.5">
+                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
+                  <input
+                    type="checkbox"
+                    checked={invShowStatTrak}
+                    onChange={(e) => setInvShowStatTrak(e.target.checked)}
+                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                  />
+                  {t("invFilterStatTrak", lang)}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
+                  <input
+                    type="checkbox"
+                    checked={invShowSouvenir}
+                    onChange={(e) => setInvShowSouvenir(e.target.checked)}
+                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                  />
+                  {t("invFilterSouvenir", lang)}
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
+                  <input
+                    type="checkbox"
+                    checked={invShowTradeLocked}
+                    onChange={(e) => setInvShowTradeLocked(e.target.checked)}
+                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                  />
+                  {t("invFilterTradeLocked", lang)}
+                </label>
+              </div>
+              <div>
+                <h4 className="mb-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">{t("invFilterPriceRange", lang)}</h4>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={t("invFilterMin", lang)}
+                    value={invPriceMinStr}
+                    onChange={(e) => setInvPriceMinStr(e.target.value)}
+                    className="w-full min-w-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                  />
+                  <span className="shrink-0 text-zinc-500">—</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={t("invFilterMax", lang)}
+                    value={invPriceMaxStr}
+                    onChange={(e) => setInvPriceMaxStr(e.target.value)}
+                    className="w-full min-w-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                  />
+                </div>
+              </div>
+              <div>
+                <h4 className="mb-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">{t("invFilterFloatRange", lang)}</h4>
+                <div
+                  className="mb-1.5 h-2 w-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600 shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]"
+                  aria-hidden
+                />
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="w-7 shrink-0 text-[8px] text-zinc-500">{t("invFilterMin", lang)}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.001}
+                      value={invFloatMin}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        const x = Math.max(0, Math.min(1, v));
+                        setInvFloatMin(Math.min(x, invFloatMax));
+                      }}
+                      aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMin", lang)}`}
+                      className="w-[4.25rem] shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-[9px] text-zinc-100"
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={1000}
+                      step={1}
+                      value={Math.round(invFloatMin * 1000)}
+                      onChange={(e) => {
+                        const step = Number(e.target.value);
+                        setInvFloatMin(Math.min(step / 1000, invFloatMax));
+                      }}
+                      aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMin", lang)}`}
+                      className="min-w-0 flex-1 accent-emerald-500"
+                    />
+                  </div>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <span className="w-7 shrink-0 text-[8px] text-zinc-500">{t("invFilterMax", lang)}</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.001}
+                      value={invFloatMax}
+                      onChange={(e) => {
+                        const v = parseFloat(e.target.value);
+                        if (!Number.isFinite(v)) return;
+                        const x = Math.max(0, Math.min(1, v));
+                        setInvFloatMax(Math.max(x, invFloatMin));
+                      }}
+                      aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMax", lang)}`}
+                      className="w-[4.25rem] shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-[9px] text-zinc-100"
+                    />
+                    <input
+                      type="range"
+                      min={0}
+                      max={1000}
+                      step={1}
+                      value={Math.round(invFloatMax * 1000)}
+                      onChange={(e) => {
+                        const step = Number(e.target.value);
+                        setInvFloatMax(Math.max(step / 1000, invFloatMin));
+                      }}
+                      aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMax", lang)}`}
+                      className="min-w-0 flex-1 accent-red-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
 
             {/* Item Type Categories — 2 cols, truncate to avoid horizontal overflow */}
             <div className="min-w-0">

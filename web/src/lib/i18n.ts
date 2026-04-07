@@ -155,6 +155,13 @@ const T: Translations = {
   },
 
   itemType: { ru: "Тип предмета", en: "Item type", zh: "物品类型" },
+  invFilterStatTrak: { ru: "StatTrak", en: "StatTrak", zh: "StatTrak" },
+  invFilterSouvenir: { ru: "Souvenir", en: "Souvenir", zh: "纪念品" },
+  invFilterTradeLocked: { ru: "Трейдлок", en: "Trade locked", zh: "交易锁定" },
+  invFilterPriceRange: { ru: "Цена ($)", en: "Price ($)", zh: "价格 ($)" },
+  invFilterFloatRange: { ru: "Float", en: "Float", zh: "磨损值" },
+  invFilterMin: { ru: "мин", en: "min", zh: "最低" },
+  invFilterMax: { ru: "макс", en: "max", zh: "最高" },
   wearLabel: { ru: "Износ", en: "Wear", zh: "磨损" },
   wearAll: { ru: "Все", en: "All", zh: "全部" },
 
