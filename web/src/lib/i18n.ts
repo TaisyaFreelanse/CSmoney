@@ -155,6 +155,7 @@ const T: Translations = {
   },
 
   itemType: { ru: "Тип предмета", en: "Item type", zh: "物品类型" },
+  invFilterOthers: { ru: "Другие", en: "Others", zh: "其他" },
   invFilterStatTrak: { ru: "StatTrak", en: "StatTrak", zh: "StatTrak" },
   invFilterSouvenir: { ru: "Souvenir", en: "Souvenir", zh: "纪念品" },
   invFilterTradeLocked: { ru: "Трейдлок", en: "Trade locked", zh: "交易锁定" },

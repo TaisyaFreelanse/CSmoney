@@ -713,6 +713,9 @@ export default function TradePageClient({
       : "text-emerald-500";
   const canSubmit = tradeSelectionReady && tradeBalance?.ok === true && !tradeModalBusy;
 
+  const tradeFilterCardClass =
+    "min-w-0 rounded-2xl border border-zinc-800/70 bg-zinc-950/85 px-3 py-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] sm:px-4 sm:py-3.5";
+
   useLayoutEffect(() => {
     const el = overpayBarFillRef.current;
     if (!el) return;
@@ -1094,47 +1097,57 @@ export default function TradePageClient({
             {/* Divider */}
             <div className="border-t border-zinc-800/50" />
 
-            {/* StatTrak / Souvenir / trade lock + price + float (client-side, both inventories) */}
-            <div className="min-w-0 space-y-2 rounded-lg border border-zinc-800/60 bg-zinc-900/40 px-2 py-2">
-              <div className="flex flex-col gap-1.5">
-                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
-                  <input
-                    type="checkbox"
-                    checked={invShowStatTrak}
-                    onChange={(e) => setInvShowStatTrak(e.target.checked)}
-                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                  />
-                  {t("invFilterStatTrak", lang)}
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
-                  <input
-                    type="checkbox"
-                    checked={invShowSouvenir}
-                    onChange={(e) => setInvShowSouvenir(e.target.checked)}
-                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                  />
-                  {t("invFilterSouvenir", lang)}
-                </label>
-                <label className="flex cursor-pointer items-center gap-2 text-[9px] text-zinc-300 sm:text-[10px]">
-                  <input
-                    type="checkbox"
-                    checked={invShowTradeLocked}
-                    onChange={(e) => setInvShowTradeLocked(e.target.checked)}
-                    className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                  />
-                  {t("invFilterTradeLocked", lang)}
-                </label>
+            <div className="flex min-w-0 flex-col gap-3">
+            {/* Inventory filters — stacked cards (client-side, both inventories) */}
+            <div className="flex min-w-0 flex-col gap-3">
+              <div className={tradeFilterCardClass}>
+                <h4 className="mb-2.5 text-[10px] font-semibold tracking-tight text-zinc-300 sm:text-[11px]">{t("invFilterOthers", lang)}</h4>
+                <div className="flex flex-col gap-2">
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowStatTrak}
+                      onChange={(e) => setInvShowStatTrak(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterStatTrak", lang)}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowSouvenir}
+                      onChange={(e) => setInvShowSouvenir(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterSouvenir", lang)}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowTradeLocked}
+                      onChange={(e) => setInvShowTradeLocked(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterTradeLocked", lang)}
+                  </label>
+                </div>
               </div>
-              <div>
-                <h4 className="mb-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">{t("invFilterPriceRange", lang)}</h4>
-                <div className="flex items-center gap-1">
+
+              <div className={tradeFilterCardClass}>
+                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+                  <span className="shrink-0 font-bold text-amber-500" aria-hidden>
+                    $
+                  </span>
+                  <span className="min-w-0 truncate">{t("invFilterPriceRange", lang)}</span>
+                </h4>
+                <div className="flex min-w-0 items-center gap-2">
                   <input
                     type="text"
                     inputMode="decimal"
                     placeholder={t("invFilterMin", lang)}
                     value={invPriceMinStr}
                     onChange={(e) => setInvPriceMinStr(e.target.value)}
-                    className="w-full min-w-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
                   />
                   <span className="shrink-0 text-zinc-500">—</span>
                   <input
@@ -1143,19 +1156,25 @@ export default function TradePageClient({
                     placeholder={t("invFilterMax", lang)}
                     value={invPriceMaxStr}
                     onChange={(e) => setInvPriceMaxStr(e.target.value)}
-                    className="w-full min-w-0 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
                   />
                 </div>
               </div>
-              <div>
-                <h4 className="mb-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">{t("invFilterFloatRange", lang)}</h4>
+
+              <div className={tradeFilterCardClass}>
+                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+                  <span className="shrink-0 text-amber-500" aria-hidden>
+                    ◐
+                  </span>
+                  <span className="min-w-0 truncate">{t("invFilterFloatRange", lang)}</span>
+                </h4>
                 <div
-                  className="mb-1.5 h-2 w-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600 shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]"
+                  className="mb-2 h-2.5 w-full rounded-full bg-gradient-to-r from-emerald-500 via-amber-400 to-red-600 shadow-[inset_0_1px_2px_rgba(0,0,0,0.35)]"
                   aria-hidden
                 />
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex min-w-0 items-center gap-1">
-                    <span className="w-7 shrink-0 text-[8px] text-zinc-500">{t("invFilterMin", lang)}</span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="w-8 shrink-0 text-[8px] font-medium text-zinc-500">{t("invFilterMin", lang)}</span>
                     <input
                       type="number"
                       min={0}
@@ -1169,7 +1188,7 @@ export default function TradePageClient({
                         setInvFloatMin(Math.min(x, invFloatMax));
                       }}
                       aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMin", lang)}`}
-                      className="w-[4.25rem] shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-[9px] text-zinc-100"
+                      className="w-[4.25rem] shrink-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-1.5 py-1 text-[9px] text-zinc-100"
                     />
                     <input
                       type="range"
@@ -1185,8 +1204,8 @@ export default function TradePageClient({
                       className="min-w-0 flex-1 accent-emerald-500"
                     />
                   </div>
-                  <div className="flex min-w-0 items-center gap-1">
-                    <span className="w-7 shrink-0 text-[8px] text-zinc-500">{t("invFilterMax", lang)}</span>
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="w-8 shrink-0 text-[8px] font-medium text-zinc-500">{t("invFilterMax", lang)}</span>
                     <input
                       type="number"
                       min={0}
@@ -1200,7 +1219,7 @@ export default function TradePageClient({
                         setInvFloatMax(Math.max(x, invFloatMin));
                       }}
                       aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMax", lang)}`}
-                      className="w-[4.25rem] shrink-0 rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-[9px] text-zinc-100"
+                      className="w-[4.25rem] shrink-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-1.5 py-1 text-[9px] text-zinc-100"
                     />
                     <input
                       type="range"
@@ -1247,16 +1266,16 @@ export default function TradePageClient({
             </div>
 
             {/* Wear filter */}
-            <div className="min-w-0">
-              <h4 className="mb-0.5 flex items-center gap-1 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+            <div className={tradeFilterCardClass}>
+              <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
                 <span className="shrink-0 text-amber-500">◈</span>
                 <span className="min-w-0 truncate">{t("wearLabel", lang)}</span>
               </h4>
-              <div className="flex min-w-0 flex-wrap gap-0.5">
+              <div className="flex min-w-0 flex-wrap gap-1">
                 <button
                   type="button"
                   onClick={() => setWear("All")}
-                  className={`rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                  className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
                     wear === "All" ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
                   }`}
                 >
@@ -1267,7 +1286,7 @@ export default function TradePageClient({
                     key={w}
                     type="button"
                     onClick={() => setWear(w)}
-                    className={`rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                    className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
                       wear === w ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
                     }`}
                   >
@@ -1275,6 +1294,7 @@ export default function TradePageClient({
                   </button>
                 ))}
               </div>
+            </div>
             </div>
 
             {/* Requirements */}
