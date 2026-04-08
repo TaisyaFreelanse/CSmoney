@@ -112,9 +112,24 @@ const T: Translations = {
 
   tradeSubmitManualOrderPrefix: { ru: "Заявка", en: "Order", zh: "订单" },
   tradeSubmitManualChecklistLead: {
-    ru: "Заявка создана и уже в истории. В новой вкладке открыта ссылка на обмен магазина — добавьте в предложение ровно те предметы, что указаны ниже.",
-    en: "Your request is saved and appears in history. The store trade link opened in a new tab — add exactly the items listed below to your Steam offer.",
-    zh: "申请已保存并显示在历史记录中。商店交易链接已在新标签页打开——请在 Steam 报价中加入下列物品。",
+    ru: "Заявка создана и уже в истории. Добавьте в предложение Steam ровно те предметы, что указаны ниже.",
+    en: "Your request is saved and appears in history. Add exactly the items listed below to your Steam offer.",
+    zh: "申请已保存并显示在历史记录中。请在 Steam 报价中加入下列物品。",
+  },
+  tradeSubmitManualSteamInstruction: {
+    ru: "Перейдите в Steam и отправьте обмен с указанными предметами.",
+    en: "Open Steam and send the trade with the items listed above.",
+    zh: "请前往 Steam 并发送包含上述物品的交易报价。",
+  },
+  tradeSubmitGoToSteamTrade: {
+    ru: "Перейти к созданию обмена",
+    en: "Go to create the trade",
+    zh: "前往创建交易",
+  },
+  tradeSubmitReturnAfterSteamHint: {
+    ru: "После отправки обмена вернитесь сюда и нажмите «Открыть в истории».",
+    en: "After you send the offer, return here and tap “Open in history”.",
+    zh: "发送报价后请返回此处并点击「在历史中查看」。",
   },
   tradeSubmitManualYourItemsHeading: {
     ru: "Ваши предметы",

@@ -1,0 +1,95 @@
+# Render Blueprint — CSmoney stack in Frankfurt (EU)
+# Apply from: Dashboard → Blueprints → New Blueprint Instance (link this repo).
+# Service names are suffixed with -fra so they do not collide with existing Oregon resources
+# in the same workspace during migration.
+#
+# After cutover you may rename services in the Dashboard if you prefer shorter names.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+databases:
+  - name: csmoney-postgres-fra
+    databaseName: csmoney_postgres
+    user: csmoney_postgres_user
+    plan: basic-256mb
+    region: frankfurt
+    postgresMajorVersion: "16"
+    ipAllowList: []
+
+services:
+  - type: web
+    name: csmoney-web-fra
+    runtime: node
+    plan: pro
+    region: frankfurt
+    branch: main
+    rootDir: web
+    buildCommand: npm ci && npm run build
+    preDeployCommand: npm run render:release
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    repo: https://github.com/TaisyaFreelanse/CSmoney
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: csmoney-postgres-fra
+          property: connectionString
+      # Secrets: set in Dashboard when the Blueprint is applied (or copy from Oregon services).
+      - key: SESSION_SECRET
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: STEAM_WEB_API_KEY
+        sync: false
+      - key: OWNER_STEAM_ID
+        sync: false
+      - key: PRICEMPIRE_API_KEY
+        sync: false
+      - key: EXCHANGE_RATE_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: SITE_HOST_ALIASES
+        sync: false
+      - key: ADMIN_STEAM_IDS
+        sync: false
+      # Optional toggles / paths (set only if you use them in Oregon today)
+      - key: OWNER_INVENTORY_CONTEXT_ID
+        sync: false
+      - key: OWNER_MANUAL_TRADE_LOCK_PATH
+        sync: false
+      - key: OWNER_MANUAL_TRADE_LOCK_CLASS_INSTANCE_ONLY
+        sync: false
+      - key: INVENTORY_CACHE_LOG
+        sync: false
+      - key: FX_RATES_MIN_SYNC_INTERVAL_HOURS
+        sync: false
+
+  - type: cron
+    name: price-sync-fra
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    schedule: "0 * * * *"
+    buildCommand: 'echo "no build needed"'
+    startCommand: node scripts/sync-prices.mjs
+    repo: https://github.com/TaisyaFreelanse/CSmoney
+    envVars:
+      # scripts/sync-prices.mjs only needs a public HTTPS base URL + CRON_SECRET.
+      # Set APP_URL to the Frankfurt web service URL (e.g. https://csmoney-web-fra.onrender.com)
+      # or your custom domain after DNS cutover.
+      - key: APP_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      # Not read by sync-prices.mjs today; included for parity / future jobs.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: csmoney-postgres-fra
+          property: connectionString

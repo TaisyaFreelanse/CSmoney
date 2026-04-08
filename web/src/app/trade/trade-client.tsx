@@ -215,6 +215,8 @@ export default function TradePageClient({
   const [tradeModalBusy, setTradeModalBusy] = useState(false);
   const [tradeModalError, setTradeModalError] = useState<string | null>(null);
   const [tradeModalCreatedId, setTradeModalCreatedId] = useState<string | null>(null);
+  const [manualOwnerTradeUrl, setManualOwnerTradeUrl] = useState<string | null>(null);
+  const [manualSteamLinkClicked, setManualSteamLinkClicked] = useState(false);
   const tradeModalSnapshotRef = useRef<{ guest: string[]; owner: string[] } | null>(null);
 
   const [ownerRefreshing, setOwnerRefreshing] = useState(false);
@@ -394,6 +396,8 @@ export default function TradePageClient({
     setTradeModalBusy(false);
     setManualChecklistGuest([]);
     setManualChecklistOwner([]);
+    setManualOwnerTradeUrl(null);
+    setManualSteamLinkClicked(false);
     tradeModalSnapshotRef.current = null;
   }, []);
 
@@ -431,9 +435,9 @@ export default function TradePageClient({
     setTradeModalCreatedId(r.tradeId && r.tradeId.length > 0 ? r.tradeId : null);
     setSelectedMy(new Set());
     setSelectedOwner(new Set());
-    if (r.ownerTradeUrl) {
-      window.open(r.ownerTradeUrl, "_blank", "noopener,noreferrer");
-    } else {
+    setManualSteamLinkClicked(false);
+    setManualOwnerTradeUrl(typeof r.ownerTradeUrl === "string" && r.ownerTradeUrl.length > 0 ? r.ownerTradeUrl : null);
+    if (!r.ownerTradeUrl) {
       setTradeSubmitError(t("tradeSubmitNoStoreUrl", lang));
     }
     setTradeSubmitModalPhase("manual_checklist");
@@ -1830,6 +1834,36 @@ export default function TradePageClient({
                       </div>
                     </div>
                   </div>
+                  {!manualOwnerTradeUrl ? (
+                    <p
+                      className="rounded-lg border border-amber-800/45 bg-amber-950/35 px-3 py-2.5 text-center text-[11px] leading-snug text-amber-100/90 sm:text-xs"
+                      role="alert"
+                    >
+                      {t("tradeSubmitNoStoreUrl", lang)}
+                    </p>
+                  ) : null}
+                  {manualOwnerTradeUrl ? (
+                    <div className="space-y-3 border-t border-zinc-800/60 pt-4">
+                      <p className="text-center text-xs leading-snug text-zinc-300 sm:text-sm">
+                        {t("tradeSubmitManualSteamInstruction", lang)}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.open(manualOwnerTradeUrl, "_blank", "noopener,noreferrer");
+                          setManualSteamLinkClicked(true);
+                        }}
+                        className="flex w-full items-center justify-center rounded-xl bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-600/20 transition-colors hover:bg-amber-500 active:scale-[0.99]"
+                      >
+                        {t("tradeSubmitGoToSteamTrade", lang)}
+                      </button>
+                      {manualSteamLinkClicked ? (
+                        <p className="text-center text-[11px] leading-snug text-violet-300/95 sm:text-xs" role="status">
+                          {t("tradeSubmitReturnAfterSteamHint", lang)}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   <p className="text-center text-[11px] leading-snug text-zinc-500">{t("tradeSubmitManualConfirmHint", lang)}</p>
                   <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">
                     {tradeModalCreatedId ? (
