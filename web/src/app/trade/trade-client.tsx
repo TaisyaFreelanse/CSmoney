@@ -101,8 +101,6 @@ const WEAR_SHORT: Record<string, string> = {
   "Battle-Scarred": "BS",
 };
 
-const INV_FILTERS_STORAGE_KEY = "chez_inventory_filters_v1";
-
 function isStatTrakItem(i: Pick<InventoryItem, "name" | "marketHashName">): boolean {
   return /stattrak/i.test(i.name) || /stattrak/i.test(i.marketHashName);
 }
@@ -123,25 +121,6 @@ function parseUsdToCentsBound(raw: string): number | null {
   const v = parseFloat(t);
   if (!Number.isFinite(v) || v < 0) return null;
   return Math.round(v * 100);
-}
-
-type InvFiltersPersisted = {
-  showStatTrak?: boolean;
-  showSouvenir?: boolean;
-  showTradeLocked?: boolean;
-  priceMinStr?: string;
-  priceMaxStr?: string;
-  floatMin?: number;
-  floatMax?: number;
-};
-
-function readInvFiltersPersisted(): InvFiltersPersisted | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return JSON.parse(localStorage.getItem(INV_FILTERS_STORAGE_KEY) || "null") as InvFiltersPersisted | null;
-  } catch {
-    return null;
-  }
 }
 
 const SORT_KEYS = [
@@ -170,6 +149,18 @@ const LANGUAGES = [
   { code: "en" as LangCode, label: "English", flag: "🇬🇧" },
   { code: "zh" as LangCode, label: "中文", flag: "🇨🇳" },
 ] as const;
+
+function readStoredLang(): LangCode {
+  if (typeof window === "undefined") return "en";
+  const raw = localStorage.getItem("chez_lang");
+  return raw === "ru" || raw === "en" || raw === "zh" ? raw : "en";
+}
+
+function readStoredCurrency(): CurrencyCode {
+  if (typeof window === "undefined") return "USD";
+  const raw = localStorage.getItem("chez_currency");
+  return CURRENCIES.some((c) => c.code === raw) ? (raw as CurrencyCode) : "USD";
+}
 
 function fmtPrice(
   cents: number,
@@ -247,78 +238,28 @@ export default function TradePageClient({
   const [category, setCategory] = useState("All");
   const [wear, setWear] = useState("All");
 
-  const [invShowStatTrak, setInvShowStatTrak] = useState(true);
-  const [invShowSouvenir, setInvShowSouvenir] = useState(true);
-  const [invShowTradeLocked, setInvShowTradeLocked] = useState(true);
-  const [invPriceMinStr, setInvPriceMinStr] = useState("");
-  const [invPriceMaxStr, setInvPriceMaxStr] = useState("");
-  const [invFloatMin, setInvFloatMin] = useState(0);
-  const [invFloatMax, setInvFloatMax] = useState(1);
-  const [invFiltersHydrated, setInvFiltersHydrated] = useState(false);
+  /** Market-only (CHEZ): Price / Float / Others. Fresh each page load; not persisted. User inventory ignores these. */
+  const [marketShowStatTrak, setMarketShowStatTrak] = useState(false);
+  const [marketShowSouvenir, setMarketShowSouvenir] = useState(false);
+  const [marketShowTradeLocked, setMarketShowTradeLocked] = useState(false);
+  const [marketPriceMinStr, setMarketPriceMinStr] = useState("");
+  const [marketPriceMaxStr, setMarketPriceMaxStr] = useState("");
+  const [marketFloatMin, setMarketFloatMin] = useState(0);
+  const [marketFloatMax, setMarketFloatMax] = useState(1);
 
-  useEffect(() => {
-    const p = readInvFiltersPersisted();
-    if (p) {
-      if (typeof p.showStatTrak === "boolean") setInvShowStatTrak(p.showStatTrak);
-      if (typeof p.showSouvenir === "boolean") setInvShowSouvenir(p.showSouvenir);
-      if (typeof p.showTradeLocked === "boolean") setInvShowTradeLocked(p.showTradeLocked);
-      if (typeof p.priceMinStr === "string") setInvPriceMinStr(p.priceMinStr);
-      if (typeof p.priceMaxStr === "string") setInvPriceMaxStr(p.priceMaxStr);
-      let fMin = 0;
-      let fMax = 1;
-      if (typeof p.floatMin === "number" && Number.isFinite(p.floatMin)) fMin = Math.max(0, Math.min(1, p.floatMin));
-      if (typeof p.floatMax === "number" && Number.isFinite(p.floatMax)) fMax = Math.max(0, Math.min(1, p.floatMax));
-      if (fMin > fMax) [fMin, fMax] = [fMax, fMin];
-      setInvFloatMin(fMin);
-      setInvFloatMax(fMax);
-    }
-    setInvFiltersHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!invFiltersHydrated) return;
-    const payload: InvFiltersPersisted = {
-      showStatTrak: invShowStatTrak,
-      showSouvenir: invShowSouvenir,
-      showTradeLocked: invShowTradeLocked,
-      priceMinStr: invPriceMinStr,
-      priceMaxStr: invPriceMaxStr,
-      floatMin: invFloatMin,
-      floatMax: invFloatMax,
-    };
-    try {
-      localStorage.setItem(INV_FILTERS_STORAGE_KEY, JSON.stringify(payload));
-    } catch {
-      /* ignore quota */
-    }
-  }, [
-    invFiltersHydrated,
-    invShowStatTrak,
-    invShowSouvenir,
-    invShowTradeLocked,
-    invPriceMinStr,
-    invPriceMaxStr,
-    invFloatMin,
-    invFloatMax,
-  ]);
-
-  // Language & Currency
-  const [currency, setCurrency] = useState<CurrencyCode>(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("chez_currency") as CurrencyCode) || "USD";
-    }
-    return "USD";
-  });
+  // Language & Currency: SSR/hydration use en + USD; after mount, restore validated localStorage
+  const [currency, setCurrency] = useState<CurrencyCode>("USD");
   const [fxRatesByCode, setFxRatesByCode] = useState<Record<CurrencyCode, number>>(() => ({ ...DEFAULT_FX_RATES }));
-  const [lang, setLang] = useState<LangCode>(() => {
-    if (typeof window !== "undefined") {
-      return (localStorage.getItem("chez_lang") as LangCode) || "ru";
-    }
-    return "ru";
-  });
+  const [lang, setLang] = useState<LangCode>("en");
 
   const overpayBarFillRef = useRef<HTMLDivElement>(null);
   const mobileOverpayBarFillRef = useRef<HTMLDivElement>(null);
+
+  // Restore before persist effects run so we don't overwrite localStorage with en/USD on first paint.
+  useLayoutEffect(() => {
+    setLang(readStoredLang());
+    setCurrency(readStoredCurrency());
+  }, []);
 
   useEffect(() => { localStorage.setItem("chez_currency", currency); }, [currency]);
   useEffect(() => { localStorage.setItem("chez_lang", lang); }, [lang]);
@@ -821,8 +762,8 @@ export default function TradePageClient({
             type="text"
             inputMode="decimal"
             placeholder={t("invFilterMin", lang)}
-            value={invPriceMinStr}
-            onChange={(e) => setInvPriceMinStr(e.target.value)}
+            value={marketPriceMinStr}
+            onChange={(e) => setMarketPriceMinStr(e.target.value)}
             className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
           />
           <span className="shrink-0 text-zinc-500">—</span>
@@ -830,8 +771,8 @@ export default function TradePageClient({
             type="text"
             inputMode="decimal"
             placeholder={t("invFilterMax", lang)}
-            value={invPriceMaxStr}
-            onChange={(e) => setInvPriceMaxStr(e.target.value)}
+            value={marketPriceMaxStr}
+            onChange={(e) => setMarketPriceMaxStr(e.target.value)}
             className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
           />
         </div>
@@ -911,12 +852,12 @@ export default function TradePageClient({
               min={0}
               max={1}
               step={0.001}
-              value={invFloatMin}
+              value={marketFloatMin}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
                 const x = Math.max(0, Math.min(1, v));
-                setInvFloatMin(Math.min(x, invFloatMax));
+                setMarketFloatMin(Math.min(x, marketFloatMax));
               }}
               aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMin", lang)}`}
               className="w-[4.25rem] shrink-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-1.5 py-1 text-[9px] text-zinc-100"
@@ -926,10 +867,10 @@ export default function TradePageClient({
               min={0}
               max={1000}
               step={1}
-              value={Math.round(invFloatMin * 1000)}
+              value={Math.round(marketFloatMin * 1000)}
               onChange={(e) => {
                 const step = Number(e.target.value);
-                setInvFloatMin(Math.min(step / 1000, invFloatMax));
+                setMarketFloatMin(Math.min(step / 1000, marketFloatMax));
               }}
               aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMin", lang)}`}
               className="min-w-0 grow accent-emerald-500"
@@ -942,12 +883,12 @@ export default function TradePageClient({
               min={0}
               max={1}
               step={0.001}
-              value={invFloatMax}
+              value={marketFloatMax}
               onChange={(e) => {
                 const v = parseFloat(e.target.value);
                 if (!Number.isFinite(v)) return;
                 const x = Math.max(0, Math.min(1, v));
-                setInvFloatMax(Math.max(x, invFloatMin));
+                setMarketFloatMax(Math.max(x, marketFloatMin));
               }}
               aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMax", lang)}`}
               className="w-[4.25rem] shrink-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-1.5 py-1 text-[9px] text-zinc-100"
@@ -957,10 +898,10 @@ export default function TradePageClient({
               min={0}
               max={1000}
               step={1}
-              value={Math.round(invFloatMax * 1000)}
+              value={Math.round(marketFloatMax * 1000)}
               onChange={(e) => {
                 const step = Number(e.target.value);
-                setInvFloatMax(Math.max(step / 1000, invFloatMin));
+                setMarketFloatMax(Math.max(step / 1000, marketFloatMin));
               }}
               aria-label={`${t("invFilterFloatRange", lang)} — ${t("invFilterMax", lang)}`}
               className="min-w-0 grow accent-red-500"
@@ -975,8 +916,8 @@ export default function TradePageClient({
           <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
             <input
               type="checkbox"
-              checked={invShowStatTrak}
-              onChange={(e) => setInvShowStatTrak(e.target.checked)}
+              checked={marketShowStatTrak}
+              onChange={(e) => setMarketShowStatTrak(e.target.checked)}
               className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
             />
             {t("invFilterStatTrak", lang)}
@@ -984,8 +925,8 @@ export default function TradePageClient({
           <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
             <input
               type="checkbox"
-              checked={invShowSouvenir}
-              onChange={(e) => setInvShowSouvenir(e.target.checked)}
+              checked={marketShowSouvenir}
+              onChange={(e) => setMarketShowSouvenir(e.target.checked)}
               className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
             />
             {t("invFilterSouvenir", lang)}
@@ -993,8 +934,8 @@ export default function TradePageClient({
           <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
             <input
               type="checkbox"
-              checked={invShowTradeLocked}
-              onChange={(e) => setInvShowTradeLocked(e.target.checked)}
+              checked={marketShowTradeLocked}
+              onChange={(e) => setMarketShowTradeLocked(e.target.checked)}
               className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
             />
             {t("invFilterTradeLocked", lang)}
@@ -1004,20 +945,20 @@ export default function TradePageClient({
     </>
   );
 
-  function matchesInvFilters(item: InventoryItem): boolean {
-    if (isStatTrakItem(item) && !invShowStatTrak) return false;
-    if (isSouvenirItem(item) && !invShowSouvenir) return false;
-    if (isItemTradeLocked(item) && !invShowTradeLocked) return false;
+  function matchesMarketFilters(item: InventoryItem): boolean {
+    if (isStatTrakItem(item) && !marketShowStatTrak) return false;
+    if (isSouvenirItem(item) && !marketShowSouvenir) return false;
+    if (isItemTradeLocked(item) && !marketShowTradeLocked) return false;
 
-    const minC = parseUsdToCentsBound(invPriceMinStr);
-    const maxC = parseUsdToCentsBound(invPriceMaxStr);
+    const minC = parseUsdToCentsBound(marketPriceMinStr);
+    const maxC = parseUsdToCentsBound(marketPriceMaxStr);
     if (minC != null && item.priceUsd < minC) return false;
     if (maxC != null && item.priceUsd > maxC) return false;
 
-    const floatActive = invFloatMin > 0 || invFloatMax < 1;
+    const floatActive = marketFloatMin > 0 || marketFloatMax < 1;
     if (floatActive) {
       if (item.floatValue == null) return false;
-      if (item.floatValue < invFloatMin || item.floatValue > invFloatMax) return false;
+      if (item.floatValue < marketFloatMin || item.floatValue > marketFloatMax) return false;
     }
     return true;
   }
@@ -1071,14 +1012,13 @@ export default function TradePageClient({
   function filterMy(items: InventoryItem[], q: string, s: string) {
     let r = items;
     if (q.trim()) { const ql = q.toLowerCase(); r = r.filter((i) => i.name.toLowerCase().includes(ql) || i.marketHashName.toLowerCase().includes(ql)); }
-    r = r.filter(matchesInvFilters);
     return sortItems(r, s);
   }
 
   function filterOwner(items: InventoryItem[], q: string, s: string) {
     let r = items;
     if (q.trim()) { const ql = q.toLowerCase(); r = r.filter((i) => i.name.toLowerCase().includes(ql) || i.marketHashName.toLowerCase().includes(ql)); }
-    r = r.filter(matchesInvFilters);
+    r = r.filter(matchesMarketFilters);
     if (category === "Weapon") {
       r = r.filter((i) => WEAPON_TYPES.some((wt) => i.type?.includes(wt)));
     } else if (category !== "All") {
