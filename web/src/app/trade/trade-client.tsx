@@ -2517,10 +2517,10 @@ function ItemCard({ item, isSelected, onToggle, onLockedItemClick, showAssetId, 
         {/* Stickers: top strip beside inspect (do not cover weapon). */}
         {item.stickers.length > 0 ? (
           <div
-            className={`group/stickers pointer-events-auto absolute top-0.5 z-[44] min-w-0 pr-0.5 ${stickerStripLeftClass} right-8`}
+            className={`group/stickers pointer-events-auto absolute top-0.5 z-[44] w-max max-w-[calc(100%-2rem)] ${stickerStripLeftClass}`}
           >
             <div
-              className="flex max-w-full flex-nowrap items-center justify-start gap-0.5 overflow-hidden rounded-md bg-zinc-950/90 px-0.5 py-0.5 shadow-md ring-1 ring-black/45"
+              className="inline-flex max-w-full flex-nowrap items-center gap-1 rounded-md bg-black/60 px-1.5 py-1 shadow-sm ring-1 ring-black/30"
               aria-label={item.stickers.map((s, i) => stickerLabel(s, i, l)).join(", ")}
             >
               {item.stickers.slice(0, 5).map((s, i) => (
