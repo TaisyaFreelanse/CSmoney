@@ -200,7 +200,7 @@ export default function AdminPricingPage() {
 
           <label className="block">
             <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Наценка на предметы гостя (%)
+              Скидка от базы для пользователя (левая колонка, %)
             </span>
             <input
               type="number"
@@ -214,11 +214,14 @@ export default function AdminPricingPage() {
                 })
               }
             />
+            <span className="mt-0.5 block text-[10px] text-zinc-400">
+              Цена гостя = база × (1 − % / 100). Пример: база $100, 3.5% → $96.50
+            </span>
           </label>
 
           <label className="block">
             <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-              Наценка на мои предметы (%)
+              Наценка магазина (правая колонка, %)
             </span>
             <input
               type="number"
@@ -232,6 +235,9 @@ export default function AdminPricingPage() {
                 })
               }
             />
+            <span className="mt-0.5 block text-[10px] text-zinc-400">
+              Цена магазина = база × (1 + % / 100). Пример: база $100, 8.5% → $108.50
+            </span>
           </label>
         </div>
 
@@ -264,9 +270,9 @@ export default function AdminPricingPage() {
           Ручные цены (мои предметы)
         </h2>
         <p className="mt-1 text-xs text-zinc-500">
-          Привязка по <strong className="text-zinc-600 dark:text-zinc-400">assetId</strong> (на главной в инвентаре магазина под карточкой виден ID и кнопка «Копир.» для админа).
+          Привязка по <strong className="text-zinc-600 dark:text-zinc-400">assetId</strong> (на главной в инвентаре магазина под карточкой виден ID и кнопка «Копир.» для админа). При сохранении подставляется скин предмета из инвентаря магазина — та же ручная настройка применяется к гостю с тем же market hash и фазой (другой Steam assetId).
           <span className="mt-1 block">
-            <strong>Фикс. цена</strong> — задаёте USD, каталог не нужен. <strong>Наценка %</strong> — дополнительный процент к цене каталога после глобальной наценки владельца: итог = каталог × (1 + наценка владельца / 100) × (1 + ваш % / 100).
+            <strong>База</strong> = фикс. USD или каталог; для режима «Наценка %» база = каталог × (1 + ваш % / 100). Затем к базе применяются скидка гостя и наценка магазина из блока выше.
           </span>
         </p>
 

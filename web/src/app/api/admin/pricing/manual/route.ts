@@ -5,7 +5,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
+import { buildOwnerPublicInventoryItems } from "@/lib/build-owner-public-inventory";
 import { prisma } from "@/lib/prisma";
+import { pricingCatalogMatchKey } from "@/lib/pricempire";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +68,15 @@ export async function POST(request: NextRequest) {
   const assetId = body.assetId.trim();
   const note = body.note != null && String(body.note).trim() ? String(body.note).trim() : null;
 
+  let catalogMatchKey: string | null = null;
+  const built = await buildOwnerPublicInventoryItems();
+  if (built.ok) {
+    const row = built.items.find((i) => String(i.assetId) === assetId);
+    if (row) {
+      catalogMatchKey = pricingCatalogMatchKey(row.marketHashName, row.phaseLabel);
+    }
+  }
+
   const manual = await prisma.ownerManualPrice.upsert({
     where: { assetId },
     create: {
@@ -73,12 +84,14 @@ export async function POST(request: NextRequest) {
       mode,
       priceUsd: mode === "fixed" ? body.priceUsd! : null,
       markupPercent: mode === "markup_percent" ? body.markupPercent! : null,
+      catalogMatchKey,
       note,
     },
     update: {
       mode,
       priceUsd: mode === "fixed" ? body.priceUsd! : null,
       markupPercent: mode === "markup_percent" ? body.markupPercent! : null,
+      catalogMatchKey,
       note,
       setAt: new Date(),
     },

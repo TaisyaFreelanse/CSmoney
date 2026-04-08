@@ -155,6 +155,22 @@ function catalogCellKey(marketHashName: string, phaseKey: string) {
   return `${marketHashName}\0${phaseKey}`;
 }
 
+/** Public: same key stored on OwnerManualPrice.catalogMatchKey and used for guest-side manual lookup. */
+export function pricingCatalogMatchKey(marketHashName: string, phaseLabel: string | null): string {
+  return catalogCellKey(marketHashName, phaseLabel ?? "default");
+}
+
+function indexManualByCatalogKey(rows: OwnerManualRow[]): Map<string, OwnerManualRow> {
+  const m = new Map<string, OwnerManualRow>();
+  for (const row of rows) {
+    const k = row.catalogMatchKey;
+    if (!k) continue;
+    const prev = m.get(k);
+    if (!prev || row.setAt > prev.setAt) m.set(k, row);
+  }
+  return m;
+}
+
 function pickCatalogRow(
   map: Map<string, CatalogRow>,
   marketHashName: string,
@@ -168,7 +184,24 @@ function pickCatalogRow(
   return null;
 }
 
-/** Same rules as the old per-item path; used by batch and resolvePrice. */
+/**
+ * Single base (USD cents) for an item, then side-specific multipliers:
+ * - guest: base × (1 − markupGuestPercent/100)
+ * - owner: base × (1 + markupOwnerPercent/100)
+ */
+function applySideMarkupFromBase(
+  baseCents: number,
+  side: "owner" | "guest",
+  settings: PricingSettingsRow,
+): number {
+  if (side === "owner") {
+    return Math.round(baseCents * (1 + settings.markupOwnerPercent / 100));
+  }
+  const discounted = Math.round(baseCents * (1 - settings.markupGuestPercent / 100));
+  return Math.max(0, discounted);
+}
+
+/** basePrice = custom ?? api; then guest/owner markups from settings. */
 function computeResolvedPrice(
   settings: PricingSettingsRow,
   side: "owner" | "guest",
@@ -180,8 +213,9 @@ function computeResolvedPrice(
   if (manual && manualMode === "fixed" && manual.priceUsd != null) {
     const dollars = Number(manual.priceUsd);
     if (dollars > 0) {
+      const baseCents = Math.round(dollars * 100);
       return {
-        priceUsd: Math.round(dollars * 100),
+        priceUsd: applySideMarkupFromBase(baseCents, side, settings),
         source: "manual",
         belowThreshold: false,
       };
@@ -192,26 +226,31 @@ function computeResolvedPrice(
     return { priceUsd: 0, source: "unavailable", belowThreshold: true };
   }
 
-  const baseCents = catalogItem.priceUsd;
-  const baseDollars = baseCents / 100;
+  const apiCents = catalogItem.priceUsd;
+  const apiDollars = apiCents / 100;
 
   if (manual && manualMode === "markup_percent" && manual.markupPercent != null) {
-    const withOwner = Math.round(baseCents * (1 + settings.markupOwnerPercent / 100));
-    const finalCents = Math.round(withOwner * (1 + manual.markupPercent / 100));
+    const baseCents = Math.round(apiCents * (1 + manual.markupPercent / 100));
     return {
-      priceUsd: finalCents,
+      priceUsd: applySideMarkupFromBase(baseCents, side, settings),
       source: "manual",
       belowThreshold: false,
     };
   }
 
-  if (baseDollars < settings.minPriceThresholdUsd) {
-    return { priceUsd: baseCents, source: "catalog", belowThreshold: true };
+  if (apiDollars < settings.minPriceThresholdUsd) {
+    return {
+      priceUsd: applySideMarkupFromBase(apiCents, side, settings),
+      source: "catalog",
+      belowThreshold: true,
+    };
   }
 
-  const markup = side === "owner" ? settings.markupOwnerPercent : settings.markupGuestPercent;
-  const finalCents = Math.round(baseCents * (1 + markup / 100));
-  return { priceUsd: finalCents, source: "catalog", belowThreshold: false };
+  return {
+    priceUsd: applySideMarkupFromBase(apiCents, side, settings),
+    source: "catalog",
+    belowThreshold: false,
+  };
 }
 
 /**
@@ -227,10 +266,7 @@ export async function resolvePricesBatch(
   const settings = await getPricingSettings();
   const provider = settings.selectedPriceProvider;
 
-  const assetIds =
-    side === "owner"
-      ? [...new Set(items.map((i) => i.assetId).filter((id): id is string => Boolean(id)))]
-      : [];
+  const assetIds = [...new Set(items.map((i) => i.assetId).filter((id): id is string => Boolean(id)))];
 
   const nameList = [...new Set(items.map((i) => i.marketHashName))].filter((n) => n.length > 0);
 
@@ -246,6 +282,7 @@ export async function resolvePricesBatch(
   ]);
 
   const manualByAsset = new Map(manualRows.map((m) => [m.assetId, m]));
+  const manualByCatalogKey = indexManualByCatalogKey(manualRows);
   const catalogMap = new Map<string, CatalogRow>();
   for (const row of catalogRows) {
     catalogMap.set(catalogCellKey(row.marketHashName, row.phaseKey), row);
@@ -253,8 +290,9 @@ export async function resolvePricesBatch(
 
   return items.map((item) => {
     const phaseKey = item.phaseLabel ?? "default";
+    const skinKey = catalogCellKey(item.marketHashName, phaseKey);
     const manual =
-      side === "owner" && item.assetId ? manualByAsset.get(item.assetId) : undefined;
+      (item.assetId ? manualByAsset.get(item.assetId) : undefined) ?? manualByCatalogKey.get(skinKey);
     const catalogItem = pickCatalogRow(catalogMap, item.marketHashName, phaseKey);
     return computeResolvedPrice(settings, side, manual, catalogItem);
   });
