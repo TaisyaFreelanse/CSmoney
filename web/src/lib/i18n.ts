@@ -116,11 +116,6 @@ const T: Translations = {
     en: "Your request is saved and appears in history. Add exactly the items listed below to your Steam offer.",
     zh: "申请已保存并显示在历史记录中。请在 Steam 报价中加入下列物品。",
   },
-  tradeSubmitManualSteamInstruction: {
-    ru: "Перейдите в Steam и отправьте обмен с указанными предметами.",
-    en: "Open Steam and send the trade with the items listed above.",
-    zh: "请前往 Steam 并发送包含上述物品的交易报价。",
-  },
   tradeSubmitGoToSteamTrade: {
     ru: "Перейти к созданию обмена",
     en: "Go to create the trade",
@@ -152,10 +147,10 @@ const T: Translations = {
     zh: "您获得：",
   },
   tradeSubmitPattern: { ru: "Паттерн", en: "Pattern", zh: "图案" },
-  tradeSubmitManualConfirmHint: {
-    ru: 'After you send the offer in Steam, click the button "I sent the trade" or "Open in history" to check status of the offer.',
+  tradeSubmitInstruction: {
+    ru: "После отправки обмена в Steam нажмите «Я отправил обмен» или «Открыть в истории», чтобы проверить статус.",
     en: 'After you send the offer in Steam, click the button "I sent the trade" or "Open in history" to check status of the offer.',
-    zh: 'After you send the offer in Steam, click the button "I sent the trade" or "Open in history" to check status of the offer.',
+    zh: "在 Steam 发送报价后，请点击「我已发送交易」或「在历史中查看」以查看报价状态。",
   },
   tradeSubmitManualConfirmBtn: {
     ru: "Я отправил обмен",

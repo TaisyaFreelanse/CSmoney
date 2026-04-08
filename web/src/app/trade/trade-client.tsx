@@ -1788,7 +1788,7 @@ export default function TradePageClient({
                         {t("tradeSubmitGoToSteamTrade", lang)}
                       </button>
                       <p className="text-center text-[11px] leading-snug text-zinc-500 sm:text-xs">
-                        {t("tradeSubmitManualConfirmHint", lang)}
+                        {t("tradeSubmitInstruction", lang)}
                       </p>
                     </div>
                   ) : null}
@@ -1827,20 +1827,6 @@ export default function TradePageClient({
                     >
                       {t("tradeSubmitNoStoreUrl", lang)}
                     </p>
-                  ) : null}
-                  {manualOwnerTradeUrl ? (
-                    <div className="space-y-3 border-t border-zinc-800/60 pt-4">
-                      <p className="text-center text-xs leading-snug text-zinc-300 sm:text-sm">
-                        {t("tradeSubmitManualSteamInstruction", lang)}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={openManualOwnerSteamTrade}
-                        className="flex w-full items-center justify-center rounded-xl bg-amber-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-amber-600/20 transition-colors hover:bg-amber-500 active:scale-[0.99]"
-                      >
-                        {t("tradeSubmitGoToSteamTrade", lang)}
-                      </button>
-                    </div>
                   ) : null}
                   <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:justify-center">
                     {tradeModalCreatedId ? (
