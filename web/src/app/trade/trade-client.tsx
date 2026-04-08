@@ -901,10 +901,10 @@ export default function TradePageClient({
         </div>
       )}
 
-      {/* Main: h-0 + flex-1 + min-h-0 — flex item height follows free space, not min-content (avoids growing past footer) */}
-      <main className="flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* 3-Column Layout — internal scroll via .trade-inventory-scroll inside columns */}
-        <div className="grid h-0 min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
+      {/* Main: flex-1 + min-h-0 + h-0 — height = free space below header/banners; grid fills main, not content min-height */}
+      <main className="flex min-h-0 h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Grid: h-full + min-h-0 + overflow-hidden — bounded by main, does not grow with center column content */}
+        <div className="grid h-full min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
         <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
@@ -1026,8 +1026,8 @@ export default function TradePageClient({
           )}
         </div>
 
-        {/* ─── CENTER: outer clips; inner min-h-0 only (no h-full / flex-1 — avoids stretching under footer) */}
-        <div className="@container flex max-h-full min-h-0 min-w-0 flex-col overflow-hidden bg-[#111113]">
+        {/* ─── CENTER: subtle vertical scroll (.center-scroll in globals.css); inner layout unchanged */}
+        <div className="@container center-scroll flex max-h-full min-h-0 min-w-0 flex-col bg-[#111113]">
           <div className="flex min-h-0 flex-col gap-1.5 px-1.5 pt-1.5 pb-[112px] sm:gap-2 sm:px-2 sm:pt-2 sm:pb-[120px]">
             {/* Trade analysis */}
             <div className="grid min-w-0 grid-cols-2 gap-1">
