@@ -1028,7 +1028,7 @@ export default function TradePageClient({
 
         {/* ─── CENTER: h-full so inner flex-1 consumes full grid cell (same height as side columns) ─── */}
         <div className="@container flex h-full min-h-0 min-w-0 flex-col bg-[#111113]">
-          <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-1.5 py-1.5 sm:gap-2 sm:px-2 sm:py-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pt-1.5 pb-[112px] sm:gap-2 sm:px-2 sm:pt-2 sm:pb-[120px]">
             {/* Trade analysis */}
             <div className="grid min-w-0 grid-cols-2 gap-1">
               <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1 text-center">
