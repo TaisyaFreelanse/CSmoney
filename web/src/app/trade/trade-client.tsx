@@ -234,14 +234,14 @@ export default function TradePageClient({
   const [ownerSearch, setOwnerSearch] = useState("");
   const [ownerSort, setOwnerSort] = useState("price-desc");
 
-  // Center filters (apply to both panels)
+  // Center filters (market / CHEZ store list only)
   const [category, setCategory] = useState("All");
   const [wear, setWear] = useState("All");
 
   /** Market-only (CHEZ): Price / Float / Others. Fresh each page load; not persisted. User inventory ignores these. */
-  const [marketShowStatTrak, setMarketShowStatTrak] = useState(false);
-  const [marketShowSouvenir, setMarketShowSouvenir] = useState(false);
-  const [marketShowTradeLocked, setMarketShowTradeLocked] = useState(false);
+  const [marketShowStatTrak, setMarketShowStatTrak] = useState(true);
+  const [marketShowSouvenir, setMarketShowSouvenir] = useState(true);
+  const [marketShowTradeLocked, setMarketShowTradeLocked] = useState(true);
   const [marketPriceMinStr, setMarketPriceMinStr] = useState("");
   const [marketPriceMaxStr, setMarketPriceMaxStr] = useState("");
   const [marketFloatMin, setMarketFloatMin] = useState(0);
