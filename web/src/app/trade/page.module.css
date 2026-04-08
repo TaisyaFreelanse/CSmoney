@@ -2,7 +2,7 @@
   background-color: var(--rc);
 }
 
-/* Stagger skeleton pulses by card index (keep in sync with SKELETON_CARD_COUNT). */
+/* Stagger skeleton pulses by card index (first 15 only; rest use default timing). */
 .skeletonGrid > :nth-child(1) :global(.animate-pulse) {
   animation-delay: 0ms;
 }

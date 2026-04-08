@@ -37,9 +37,12 @@ body {
 }
 
 /* Dark scrollbars (avoids bright white Windows/Chrome default bars on trade UI) */
-.trade-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f46 #18181b;
+/* Standards track: gated so validators/targets without support skip these declarations. */
+@supports (scrollbar-width: thin) {
+  .trade-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: #3f3f46 #18181b;
+  }
 }
 
 .trade-scroll::-webkit-scrollbar {
@@ -65,21 +68,13 @@ body {
 }
 
 /*
- * Left/right trade inventories: cap height to ~6 grid rows (compact square ItemCard + gap),
- * then scroll inside. Capped by 72dvh so short viewports don’t grow the page.
- * Approx. row ≈ column width (aspect-square cards) — use ~148px baseline for scroll cap.
+ * Left/right trade inventories: fill remaining column height (flex parent), scroll inside.
+ * No fixed max-height — avoids empty void under the grid on tall desktop layouts.
  */
 .trade-inventory-scroll {
-  flex: 0 1 auto;
+  flex: 1 1 0%;
   min-height: 0;
-  max-height: min(72dvh, calc(6 * (148px + 0.125rem) - 0.125rem));
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
-}
-
-@media (min-width: 640px) {
-  .trade-inventory-scroll {
-    max-height: min(72dvh, calc(6 * (152px + 0.25rem) - 0.25rem));
-  }
 }

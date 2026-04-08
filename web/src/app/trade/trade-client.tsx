@@ -144,8 +144,8 @@ const SORT_KEYS = [
   { key: "float-desc", i18n: "sortFloatDesc" },
 ] as const;
 
-const ITEMS_PER_PAGE = 30;
-const SKELETON_CARD_COUNT = 15;
+const ITEMS_PER_PAGE = 48;
+const SKELETON_CARD_COUNT = 30;
 
 const CURRENCIES = [
   { code: "USD" as const, symbol: "$", flag: "🇺🇸", rate: DEFAULT_FX_RATES.USD },
@@ -904,7 +904,7 @@ export default function TradePageClient({
         {/* 3-Column Layout — internal scroll via .trade-scroll; footer stays in document flow below */}
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
-        <div className="flex min-h-0 min-w-0 flex-col justify-start border-r border-zinc-800/50">
+        <div className="flex h-full min-h-0 min-w-0 flex-col justify-start border-r border-zinc-800/50">
           {/* Selected items strip */}
           <SelectedStrip
             label={t("youGive", lang)}
@@ -920,7 +920,7 @@ export default function TradePageClient({
 
           {/* Content — each branch gets flex-1 + overflow-y-auto so it always fills the column */}
           {!authReady ? (
-            <div className="flex min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
               <PanelHeader
                 search={mySearch}
                 onSearch={setMySearch}
@@ -938,7 +938,7 @@ export default function TradePageClient({
               </div>
             </div>
           ) : !isLoggedIn ? (
-            <div className="trade-scroll trade-inventory-scroll flex flex-col items-center justify-start gap-4 px-6 pb-6 pt-4 text-center">
+            <div className="trade-scroll trade-inventory-scroll flex min-h-0 flex-col items-center justify-start gap-4 px-6 pb-6 pt-4 text-center">
               <div className="text-5xl opacity-20">🎮</div>
               <p className="max-w-xs text-sm text-zinc-500">{t("loginPrompt", lang)}</p>
               <a href="/api/auth/steam" className="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
@@ -946,7 +946,7 @@ export default function TradePageClient({
               </a>
             </div>
           ) : !hasTradeUrl || editingTradeUrl ? (
-            <div className="trade-scroll trade-inventory-scroll">
+            <div className="trade-scroll trade-inventory-scroll min-h-0">
               <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-600/20 text-2xl">🔗</div>
                 <h3 className="text-base font-bold text-zinc-100">
@@ -991,7 +991,7 @@ export default function TradePageClient({
               </div>
             </div>
           ) : (
-            <div className="flex min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col">
               <PanelHeader
                 search={mySearch}
                 onSearch={setMySearch}
@@ -1326,7 +1326,7 @@ export default function TradePageClient({
         </div>
 
         {/* ─── RIGHT: Store Inventory ─── */}
-        <div className="flex min-h-0 min-w-0 flex-col justify-start border-l border-zinc-800/50">
+        <div className="flex h-full min-h-0 min-w-0 flex-col justify-start border-l border-zinc-800/50">
           <SelectedStrip
             label={t("youGet", lang)}
             sublabel={t("platformInventory", lang)}
@@ -1769,7 +1769,7 @@ function PanelHeader({
 }) {
   const frozen = !!controlsDisabled;
   return (
-    <div className="border-b border-zinc-800/50 bg-[#0f0f11] px-2.5 py-1.5 sm:px-3 sm:py-2">
+    <div className="shrink-0 border-b border-zinc-800/50 bg-[#0f0f11] px-2.5 py-1.5 sm:px-3 sm:py-2">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-600 text-xs">🔍</span>
@@ -1901,6 +1901,7 @@ function ItemGrid({
 }) {
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  const innerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setVisibleCount(ITEMS_PER_PAGE);
@@ -1909,27 +1910,61 @@ function ItemGrid({
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el) return;
+    const root = el.closest(".trade-inventory-scroll");
     const obs = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
           setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, items.length));
         }
       },
-      { rootMargin: "300px" },
+      { root: root ?? undefined, rootMargin: "240px" },
     );
     obs.observe(el);
     return () => obs.disconnect();
+  }, [items.length, visibleCount]);
+
+  /** If the scrollport is taller than content, bump visible batch until it fills or items run out. */
+  useLayoutEffect(() => {
+    const inner = innerRef.current;
+    if (!inner || items.length === 0) return;
+    const root = inner.closest(".trade-inventory-scroll") as HTMLElement | null;
+    if (!root || root.clientHeight < 48) return;
+    if (visibleCount >= items.length) return;
+    if (root.scrollHeight > root.clientHeight + 1) return;
+
+    setVisibleCount((prev) => Math.min(prev + ITEMS_PER_PAGE, items.length));
+  }, [items.length, visibleCount]);
+
+  useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner) return;
+    const root = inner.closest(".trade-inventory-scroll") as HTMLElement | null;
+    if (!root) return;
+
+    const ro = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        setVisibleCount((prev) => {
+          if (prev >= items.length) return prev;
+          const r = innerRef.current?.closest(".trade-inventory-scroll") as HTMLElement | null;
+          if (!r || r.clientHeight < 48) return prev;
+          if (r.scrollHeight > r.clientHeight + 1) return prev;
+          return Math.min(prev + ITEMS_PER_PAGE, items.length);
+        });
+      });
+    });
+    ro.observe(root);
+    return () => ro.disconnect();
   }, [items.length]);
 
   if (items.length === 0) {
-    return <div className="flex h-40 items-center justify-center text-sm text-zinc-600">{t("noItems", l)}</div>;
+    return <div className="flex min-h-[10rem] items-center justify-center text-sm text-zinc-600">{t("noItems", l)}</div>;
   }
 
   const visible = items.slice(0, visibleCount);
   const hasMore = visibleCount < items.length;
 
   return (
-    <>
+    <div ref={innerRef} className="min-h-0">
       <div className="grid grid-cols-2 gap-0.5 sm:grid-cols-3 sm:gap-1 lg:grid-cols-4 xl:grid-cols-5">
         {visible.map((item) => (
           <ItemCard
@@ -1954,7 +1989,7 @@ function ItemGrid({
           {t("allItemsLoaded", l)} ({items.length})
         </div>
       )}
-    </>
+    </div>
   );
 }
 
