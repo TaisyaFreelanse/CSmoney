@@ -901,10 +901,10 @@ export default function TradePageClient({
         </div>
       )}
 
-      {/* Main: consumes remaining height under header/banners; footer is next sibling (shrink-0), so center never sits under footer */}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {/* Main: h-0 + flex-1 + min-h-0 — flex item height follows free space, not min-content (avoids growing past footer) */}
+      <main className="flex h-0 min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* 3-Column Layout — internal scroll via .trade-inventory-scroll inside columns */}
-        <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
+        <div className="grid h-0 min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
         <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
@@ -1026,8 +1026,8 @@ export default function TradePageClient({
           )}
         </div>
 
-        {/* ─── CENTER: h-full so inner flex-1 consumes full grid cell (same height as side columns) ─── */}
-        <div className="@container flex h-full min-h-0 min-w-0 flex-col bg-[#111113]">
+        {/* ─── CENTER: no overflow-y; max-h-full keeps content within grid row above footer */}
+        <div className="@container flex h-full max-h-full min-h-0 min-w-0 flex-col bg-[#111113]">
           <div className="flex min-h-0 flex-1 flex-col gap-1.5 px-1.5 pt-1.5 pb-[112px] sm:gap-2 sm:px-2 sm:pt-2 sm:pb-[120px]">
             {/* Trade analysis */}
             <div className="grid min-w-0 grid-cols-2 gap-1">
