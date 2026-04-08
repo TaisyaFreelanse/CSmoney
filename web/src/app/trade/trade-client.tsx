@@ -833,7 +833,7 @@ export default function TradePageClient({
   }
 
   return (
-    <div className="scheme-dark flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
+    <div className="scheme-dark flex h-[100dvh] min-h-0 min-w-0 flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-4 py-2 sm:px-5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
@@ -864,27 +864,27 @@ export default function TradePageClient({
 
       {authError ? (
         <div
-          className="border-b border-red-800/50 bg-red-950/50 px-5 py-2 text-sm text-red-300"
+          className="shrink-0 border-b border-red-800/50 bg-red-950/50 px-5 py-2 text-sm text-red-300"
           role="alert"
         >
           {authError}
         </div>
       ) : null}
       {signedInNotice ? (
-        <div className="border-b border-emerald-800/40 bg-emerald-950/30 px-5 py-2 text-sm text-emerald-400">
+        <div className="shrink-0 border-b border-emerald-800/40 bg-emerald-950/30 px-5 py-2 text-sm text-emerald-400">
           {t("signedIn", lang)}
         </div>
       ) : null}
 
       {selectionNotice ? (
-        <div className="border-b border-amber-800/40 bg-amber-950/25 px-5 py-2 text-sm text-amber-200" role="status">
+        <div className="shrink-0 border-b border-amber-800/40 bg-amber-950/25 px-5 py-2 text-sm text-amber-200" role="status">
           {selectionNotice}
         </div>
       ) : null}
 
       {lockedTapNotice ? (
         <div
-          className="border-b border-orange-800/45 bg-orange-950/35 px-5 py-2.5 text-sm leading-snug text-orange-100"
+          className="shrink-0 border-b border-orange-800/45 bg-orange-950/35 px-5 py-2.5 text-sm leading-snug text-orange-100"
           role="status"
         >
           {lockedTapNotice}
@@ -892,16 +892,18 @@ export default function TradePageClient({
       ) : null}
 
       {/* Messages */}
-      {error && <div className="bg-red-900/30 border-b border-red-800/40 px-5 py-2 text-sm text-red-400">{error}</div>}
+      {error && (
+        <div className="shrink-0 border-b border-red-800/40 bg-red-900/30 px-5 py-2 text-sm text-red-400">{error}</div>
+      )}
       {tradeSubmitError && (
-        <div className="border-b border-red-800/40 bg-red-950/40 px-5 py-2 text-sm text-red-300" role="alert">
+        <div className="shrink-0 border-b border-red-800/40 bg-red-950/40 px-5 py-2 text-sm text-red-300" role="alert">
           {tradeSubmitError}
         </div>
       )}
 
-      {/* Main: flex-1 + min-h-0 so columns can shrink and scroll; page grows past 100vh when needed (zoom / many banners) */}
+      {/* Main: consumes remaining height under header/banners; footer is next sibling (shrink-0), so center never sits under footer */}
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {/* 3-Column Layout — internal scroll via .trade-scroll; footer stays in document flow below */}
+        {/* 3-Column Layout — internal scroll via .trade-inventory-scroll inside columns */}
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
         <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
@@ -1375,8 +1377,8 @@ export default function TradePageClient({
         </div>
       </main>
 
-      {/* Footer — normal flow; mt-auto pins to bottom when main is shorter than viewport */}
-      <footer className="mt-auto w-full shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-3 py-2 sm:px-5 sm:py-2.5 lg:px-8">
+      {/* Footer: flex sibling after flex-1 main — no mt-auto (avoids overlap with fixed-dvh column layout) */}
+      <footer className="w-full shrink-0 border-t border-zinc-800/60 bg-[#0a0a0c] px-3 py-2 sm:px-5 sm:py-2.5 lg:px-8">
         <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="min-w-0 shrink-0 sm:max-w-[32%]">
             <span className="text-xs font-bold tracking-tight text-amber-500 sm:text-sm">CHEZ<span className="text-zinc-400">TRADING</span></span>
