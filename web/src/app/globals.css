@@ -68,12 +68,13 @@ body {
 }
 
 /*
- * Left/right trade inventories: fill remaining column height (flex parent), scroll inside.
- * No fixed max-height — avoids empty void under the grid on tall desktop layouts.
+ * Left/right trade inventories: fill the flex slot under the panel header, scroll inside.
+ * Parent chain must be flex column + flex-1 min-h-0; height: 100% + min-h-0 makes overflow-y work.
  */
 .trade-inventory-scroll {
   flex: 1 1 0%;
   min-height: 0;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;

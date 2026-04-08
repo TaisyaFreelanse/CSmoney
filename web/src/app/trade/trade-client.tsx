@@ -833,7 +833,7 @@ export default function TradePageClient({
   }
 
   return (
-    <div className="scheme-dark flex min-h-screen min-w-0 flex-col overflow-x-hidden bg-[#0d0d0f] text-zinc-100">
+    <div className="scheme-dark flex h-dvh max-h-dvh min-h-0 min-w-0 flex-col overflow-hidden bg-[#0d0d0f] text-zinc-100">
       {/* Header */}
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-800/60 bg-[#111113] px-4 py-2 sm:px-5">
         <a href="/" className="text-base font-bold tracking-tight text-amber-500">CHEZ<span className="text-zinc-300">TRADING</span></a>
@@ -904,7 +904,7 @@ export default function TradePageClient({
         {/* 3-Column Layout — internal scroll via .trade-scroll; footer stays in document flow below */}
         <div className="grid min-h-0 min-w-0 flex-1 grid-cols-[minmax(0,39%)_minmax(0,22%)_minmax(0,39%)] grid-rows-[minmax(0,1fr)] items-stretch overflow-hidden">
         {/* ─── LEFT: Your Inventory ─── */}
-        <div className="flex h-full min-h-0 min-w-0 flex-col justify-start border-r border-zinc-800/50">
+        <div className="flex h-full min-h-0 min-w-0 flex-col border-r border-zinc-800/50">
           {/* Selected items strip */}
           <SelectedStrip
             label={t("youGive", lang)}
@@ -938,7 +938,7 @@ export default function TradePageClient({
               </div>
             </div>
           ) : !isLoggedIn ? (
-            <div className="trade-scroll trade-inventory-scroll flex min-h-0 flex-col items-center justify-start gap-4 px-6 pb-6 pt-4 text-center">
+            <div className="trade-scroll trade-inventory-scroll flex min-h-0 flex-1 flex-col items-center justify-start gap-4 px-6 pb-6 pt-4 text-center">
               <div className="text-5xl opacity-20">🎮</div>
               <p className="max-w-xs text-sm text-zinc-500">{t("loginPrompt", lang)}</p>
               <a href="/api/auth/steam" className="rounded-lg bg-amber-600 px-6 py-2 text-sm font-semibold text-white hover:bg-amber-500">
@@ -946,7 +946,7 @@ export default function TradePageClient({
               </a>
             </div>
           ) : !hasTradeUrl || editingTradeUrl ? (
-            <div className="trade-scroll trade-inventory-scroll min-h-0">
+            <div className="trade-scroll trade-inventory-scroll min-h-0 flex-1">
               <div className="flex flex-col items-center gap-4 px-6 pb-6 pt-4">
                 <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-600/20 text-2xl">🔗</div>
                 <h3 className="text-base font-bold text-zinc-100">
@@ -1326,7 +1326,7 @@ export default function TradePageClient({
         </div>
 
         {/* ─── RIGHT: Store Inventory ─── */}
-        <div className="flex h-full min-h-0 min-w-0 flex-col justify-start border-l border-zinc-800/50">
+        <div className="flex h-full min-h-0 min-w-0 flex-col border-l border-zinc-800/50">
           <SelectedStrip
             label={t("youGet", lang)}
             sublabel={t("platformInventory", lang)}
@@ -1340,34 +1340,36 @@ export default function TradePageClient({
             lang={lang}
           />
 
-          <PanelHeader
-            search={ownerSearch}
-            onSearch={setOwnerSearch}
-            sort={ownerSort}
-            onSort={setOwnerSort}
-            prefix="owner"
-            onRefresh={() => doRefresh("owner", setOwnerRefreshing, setOwnerCooldown, loadOwner)}
-            refreshing={ownerRefreshing}
-            cooldown={ownerCooldown}
-            lang={lang}
-            controlsDisabled={ownerInventoryLoading}
-            showRefreshButton={isAdmin}
-          />
-          <div className="trade-scroll trade-inventory-scroll px-1.5 py-1 sm:px-2 sm:py-1.5">
-            {ownerInventoryLoading ? (
-              <ItemGridSkeleton lang={lang} />
-            ) : (
-              <ItemGrid
-                items={filterOwner(ownerItems, ownerSearch, ownerSort)}
-                side="owner"
-                selected={selectedOwner}
-                onToggle={(id) => toggle(setSelectedOwner, id)}
-                onLockedItemClick={showLockedTapNotice}
-                showAssetId={isAdmin}
-                fmt={fmt}
-                lang={lang}
-              />
-            )}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <PanelHeader
+              search={ownerSearch}
+              onSearch={setOwnerSearch}
+              sort={ownerSort}
+              onSort={setOwnerSort}
+              prefix="owner"
+              onRefresh={() => doRefresh("owner", setOwnerRefreshing, setOwnerCooldown, loadOwner)}
+              refreshing={ownerRefreshing}
+              cooldown={ownerCooldown}
+              lang={lang}
+              controlsDisabled={ownerInventoryLoading}
+              showRefreshButton={isAdmin}
+            />
+            <div className="trade-scroll trade-inventory-scroll px-1.5 py-1 sm:px-2 sm:py-1.5">
+              {ownerInventoryLoading ? (
+                <ItemGridSkeleton lang={lang} />
+              ) : (
+                <ItemGrid
+                  items={filterOwner(ownerItems, ownerSearch, ownerSort)}
+                  side="owner"
+                  selected={selectedOwner}
+                  onToggle={(id) => toggle(setSelectedOwner, id)}
+                  onLockedItemClick={showLockedTapNotice}
+                  showAssetId={isAdmin}
+                  fmt={fmt}
+                  lang={lang}
+                />
+              )}
+            </div>
           </div>
         </div>
         </div>
