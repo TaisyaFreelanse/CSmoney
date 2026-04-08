@@ -1109,37 +1109,101 @@ export default function TradePageClient({
             <div className="border-t border-zinc-800/50" />
 
             <div className="flex min-w-0 flex-col gap-3">
-              {/* Others → Float → Wear → Item type → Price (client-side + store filters); Requirements below */}
+              {/* Filters order: Requirements → Price → Item type → Wear → Float → Others */}
+              {/* Requirements */}
+              <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1.5">
+                {pendingRequirements > 0 ? (
+                  <p className="mb-0.5 break-words text-[8px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[9px]">
+                    {requirementsHeading(pendingRequirements, lang)}
+                  </p>
+                ) : null}
+                <div className="space-y-1">
+                  {requirementRows.map((row, idx) => (
+                    <ReqLine key={`req-${idx}`} done={row.done} text={row.text} issue={row.issue} compact />
+                  ))}
+                </div>
+              </div>
+
               <div className={tradeFilterCardClass}>
-                <h4 className="mb-2.5 text-[10px] font-semibold tracking-tight text-zinc-300 sm:text-[11px]">{t("invFilterOthers", lang)}</h4>
-                <div className="flex flex-col gap-2">
-                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
-                    <input
-                      type="checkbox"
-                      checked={invShowStatTrak}
-                      onChange={(e) => setInvShowStatTrak(e.target.checked)}
-                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                    />
-                    {t("invFilterStatTrak", lang)}
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
-                    <input
-                      type="checkbox"
-                      checked={invShowSouvenir}
-                      onChange={(e) => setInvShowSouvenir(e.target.checked)}
-                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                    />
-                    {t("invFilterSouvenir", lang)}
-                  </label>
-                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
-                    <input
-                      type="checkbox"
-                      checked={invShowTradeLocked}
-                      onChange={(e) => setInvShowTradeLocked(e.target.checked)}
-                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
-                    />
-                    {t("invFilterTradeLocked", lang)}
-                  </label>
+                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+                  <span className="shrink-0 font-bold text-amber-500" aria-hidden>
+                    $
+                  </span>
+                  <span className="min-w-0 truncate">{t("invFilterPriceRange", lang)}</span>
+                </h4>
+                <div className="flex min-w-0 items-center gap-2">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={t("invFilterMin", lang)}
+                    value={invPriceMinStr}
+                    onChange={(e) => setInvPriceMinStr(e.target.value)}
+                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                  />
+                  <span className="shrink-0 text-zinc-500">—</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    placeholder={t("invFilterMax", lang)}
+                    value={invPriceMaxStr}
+                    onChange={(e) => setInvPriceMaxStr(e.target.value)}
+                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
+                  />
+                </div>
+              </div>
+
+              <div className={tradeFilterCardClass}>
+                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+                  <span className="shrink-0 text-amber-500">◈</span>
+                  <span className="min-w-0 truncate">{t("itemType", lang)}</span>
+                </h4>
+                <div className="grid min-w-0 grid-cols-2 gap-0.5">
+                  {CATEGORY_KEYS.map((cat) => (
+                    <button
+                      key={cat.key}
+                      type="button"
+                      onClick={() => setCategory(cat.key)}
+                      className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[9px] leading-tight transition-all sm:text-[10px] ${
+                        category === cat.key
+                          ? "border border-amber-600/40 bg-amber-600/20 font-semibold text-amber-400"
+                          : "border border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+                      }`}
+                    >
+                      <span className="shrink-0 text-xs sm:text-sm">{cat.icon}</span>
+                      <span className="min-w-0 grow truncate">{t(cat.i18n, lang)}</span>
+                      {category === cat.key && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className={tradeFilterCardClass}>
+                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
+                  <span className="shrink-0 text-amber-500">◈</span>
+                  <span className="min-w-0 truncate">{t("wearLabel", lang)}</span>
+                </h4>
+                <div className="flex min-w-0 flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setWear("All")}
+                    className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                      wear === "All" ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    {t("wearAll", lang)}
+                  </button>
+                  {WEAR_LABELS.map((w) => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setWear(w)}
+                      className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
+                        wear === w ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
+                      }`}
+                    >
+                      {WEAR_SHORT[w]}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1221,100 +1285,36 @@ export default function TradePageClient({
               </div>
 
               <div className={tradeFilterCardClass}>
-                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
-                  <span className="shrink-0 text-amber-500">◈</span>
-                  <span className="min-w-0 truncate">{t("wearLabel", lang)}</span>
-                </h4>
-                <div className="flex min-w-0 flex-wrap gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setWear("All")}
-                    className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
-                      wear === "All" ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
-                    }`}
-                  >
-                    {t("wearAll", lang)}
-                  </button>
-                  {WEAR_LABELS.map((w) => (
-                    <button
-                      key={w}
-                      type="button"
-                      onClick={() => setWear(w)}
-                      className={`rounded-lg px-2 py-1 text-[9px] font-medium transition-colors sm:text-[10px] ${
-                        wear === w ? "border border-amber-600/40 bg-amber-600/20 text-amber-400" : "border border-zinc-800/60 text-zinc-500 hover:text-zinc-300"
-                      }`}
-                    >
-                      {WEAR_SHORT[w]}
-                    </button>
-                  ))}
+                <h4 className="mb-2.5 text-[10px] font-semibold tracking-tight text-zinc-300 sm:text-[11px]">{t("invFilterOthers", lang)}</h4>
+                <div className="flex flex-col gap-2">
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowStatTrak}
+                      onChange={(e) => setInvShowStatTrak(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterStatTrak", lang)}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowSouvenir}
+                      onChange={(e) => setInvShowSouvenir(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterSouvenir", lang)}
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2.5 text-[9px] text-zinc-300 sm:text-[10px]">
+                    <input
+                      type="checkbox"
+                      checked={invShowTradeLocked}
+                      onChange={(e) => setInvShowTradeLocked(e.target.checked)}
+                      className="h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-900 accent-amber-500"
+                    />
+                    {t("invFilterTradeLocked", lang)}
+                  </label>
                 </div>
-              </div>
-
-              <div className={tradeFilterCardClass}>
-                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
-                  <span className="shrink-0 text-amber-500">◈</span>
-                  <span className="min-w-0 truncate">{t("itemType", lang)}</span>
-                </h4>
-                <div className="grid min-w-0 grid-cols-2 gap-0.5">
-                  {CATEGORY_KEYS.map((cat) => (
-                    <button
-                      key={cat.key}
-                      type="button"
-                      onClick={() => setCategory(cat.key)}
-                      className={`flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[9px] leading-tight transition-all sm:text-[10px] ${
-                        category === cat.key
-                          ? "border border-amber-600/40 bg-amber-600/20 font-semibold text-amber-400"
-                          : "border border-transparent text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
-                      }`}
-                    >
-                      <span className="shrink-0 text-xs sm:text-sm">{cat.icon}</span>
-                      <span className="min-w-0 grow truncate">{t(cat.i18n, lang)}</span>
-                      {category === cat.key && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className={tradeFilterCardClass}>
-                <h4 className="mb-2 flex min-w-0 items-center gap-1.5 text-[9px] font-semibold text-zinc-400 sm:text-[10px]">
-                  <span className="shrink-0 font-bold text-amber-500" aria-hidden>
-                    $
-                  </span>
-                  <span className="min-w-0 truncate">{t("invFilterPriceRange", lang)}</span>
-                </h4>
-                <div className="flex min-w-0 items-center gap-2">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder={t("invFilterMin", lang)}
-                    value={invPriceMinStr}
-                    onChange={(e) => setInvPriceMinStr(e.target.value)}
-                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
-                  />
-                  <span className="shrink-0 text-zinc-500">—</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    placeholder={t("invFilterMax", lang)}
-                    value={invPriceMaxStr}
-                    onChange={(e) => setInvPriceMaxStr(e.target.value)}
-                    className="w-full min-w-0 rounded-lg border border-zinc-700/90 bg-zinc-900/90 px-2 py-1.5 text-[9px] text-zinc-100 sm:text-[10px]"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Requirements */}
-            <div className="min-w-0 rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-1.5 py-1.5">
-              {pendingRequirements > 0 ? (
-                <p className="mb-0.5 break-words text-[8px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[9px]">
-                  {requirementsHeading(pendingRequirements, lang)}
-                </p>
-              ) : null}
-              <div className="space-y-1">
-                {requirementRows.map((row, idx) => (
-                  <ReqLine key={`req-${idx}`} done={row.done} text={row.text} issue={row.issue} compact />
-                ))}
               </div>
             </div>
 
