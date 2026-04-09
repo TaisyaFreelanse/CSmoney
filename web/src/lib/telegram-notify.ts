@@ -6,6 +6,7 @@
 import type { ChatMessage, Trade, TradeItem, User } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
+import { parseTradeUrl } from "@/lib/steam-inventory";
 
 const LOG = "[telegram-notify]";
 
@@ -21,9 +22,13 @@ export const TELEGRAM_CHAT_IDS = {
   user: () => process.env.TELEGRAM_CHAT_ID_USERS?.trim() ?? null,
 } as const;
 
-function siteBaseUrl(): string | null {
-  const u = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
-  return u && u.length > 0 ? u : null;
+/** Canonical Steam new-offer URL from stored profile link (no logging). */
+function canonicalSteamTradeOfferUrl(stored: string | null | undefined): string | null {
+  const raw = stored?.trim();
+  if (!raw) return null;
+  const p = parseTradeUrl(raw);
+  if (!p) return null;
+  return `https://steamcommunity.com/tradeoffer/new/?partner=${p.partner}&token=${encodeURIComponent(p.token)}`;
 }
 
 function escapeHtml(s: string): string {
@@ -134,22 +139,25 @@ export async function tryNotifyTelegramDeduped(
 }
 
 /** Fire-and-forget: does not block the HTTP handler. */
-export function queueTelegramNewTrade(trade: Trade & { items: TradeItem[] }, creator: Pick<User, "steamId" | "displayName">): void {
+export function queueTelegramNewTrade(
+  trade: Trade & { items: TradeItem[] },
+  creator: Pick<User, "steamId" | "displayName" | "tradeUrl">,
+): void {
   void tryNotifyTelegramDeduped(`trade:${trade.id}`, TELEGRAM_CHAT_IDS.trade(), () => {
     const who = escapeHtml(creator.displayName ?? creator.steamId);
     const steam = escapeHtml(creator.steamId);
     const { guestCents, ownerCents } = guestOwnerTotalsCents(trade.items);
     const give = linesForSide(trade.items, "guest");
     const recv = linesForSide(trade.items, "owner");
-    const base = siteBaseUrl();
-    const replyMarkup =
-      base != null
-        ? {
-            inline_keyboard: [
-              [{ text: "Open trade", url: `${base}/trades/${encodeURIComponent(trade.id)}` }],
-            ],
-          }
-        : undefined;
+    const steamTradeUrl = canonicalSteamTradeOfferUrl(creator.tradeUrl);
+    const tradeUrlBlock =
+      steamTradeUrl != null
+        ? [
+            "",
+            "<b>Trade URL:</b>",
+            `<a href="${escapeHtml(steamTradeUrl)}">${escapeHtml(steamTradeUrl)}</a>`,
+          ].join("\n")
+        : ["", "<b>Trade URL:</b>", "<i>(not saved in profile)</i>"].join("\n");
 
     const text = [
       "<b>🆕 New Trade</b>",
@@ -163,9 +171,10 @@ export function queueTelegramNewTrade(trade: Trade & { items: TradeItem[] }, cre
       recv,
       "",
       `<b>Totals:</b> give $${(guestCents / 100).toFixed(2)} · receive $${(ownerCents / 100).toFixed(2)}`,
+      tradeUrlBlock,
     ].join("\n");
 
-    return { text, replyMarkup };
+    return { text };
   });
 }
 

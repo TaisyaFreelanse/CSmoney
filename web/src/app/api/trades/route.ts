@@ -370,6 +370,7 @@ export async function POST(request: NextRequest) {
   queueTelegramNewTrade(trade, {
     steamId: user.steamId,
     displayName: user.displayName,
+    tradeUrl: user.tradeUrl ?? null,
   });
 
   return NextResponse.json({
