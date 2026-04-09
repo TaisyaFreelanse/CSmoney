@@ -1667,26 +1667,27 @@ export default function TradePageClient({
             </div>
           </div>
 
-          <nav
-            className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-[9px] text-zinc-600 sm:w-auto sm:text-[10px]"
-            aria-label="Legal"
-          >
-            <Link href="/terms" className="shrink-0 text-zinc-600 hover:text-zinc-400">
-              {t("footerTos", lang)}
-            </Link>
-            <Link href="/privacy" className="shrink-0 text-zinc-600 hover:text-zinc-400">
-              {t("footerPrivacy", lang)}
-            </Link>
-            <Link href="/cookies" className="shrink-0 text-zinc-600 hover:text-zinc-400">
-              {t("footerCookies", lang)}
-            </Link>
-          </nav>
+          <div className="flex w-full min-w-0 flex-col items-center justify-center sm:w-auto">
+            <nav
+              className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-4 gap-y-1 text-center text-[9px] text-zinc-600 sm:text-[10px]"
+              aria-label="Legal"
+            >
+              <Link href="/terms" className="shrink-0 text-zinc-600 hover:text-zinc-400">
+                {t("footerTos", lang)}
+              </Link>
+              <Link href="/privacy" className="shrink-0 text-zinc-600 hover:text-zinc-400">
+                {t("footerPrivacy", lang)}
+              </Link>
+              <Link href="/cookies" className="shrink-0 text-zinc-600 hover:text-zinc-400">
+                {t("footerCookies", lang)}
+              </Link>
+            </nav>
+            <p className="mt-2 max-w-md text-balance text-center text-[8px] leading-snug text-zinc-500 sm:mt-3 sm:text-[9px]">
+              {t("footerValve", lang)}
+            </p>
+          </div>
           {/* Balances the left column so legal links sit at true viewport center on sm+ */}
           <div className="hidden min-w-0 sm:block" aria-hidden />
-        </div>
-
-        <div className="mt-2 w-full min-w-0 border-t border-zinc-800/40 px-1 pt-2 text-center text-[8px] leading-snug text-zinc-700 sm:mt-2.5 sm:px-3 sm:pt-2 sm:text-[9px]">
-          <span className="text-balance">{t("footerValve", lang)}</span>
         </div>
       </footer>
 

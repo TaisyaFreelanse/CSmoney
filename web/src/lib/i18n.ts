@@ -269,6 +269,8 @@ const T: Translations = {
   tradesPolling: { ru: "Статус обновляется автоматически каждые ~8 с", en: "Status auto-refreshes about every 8s", zh: "状态约每 8 秒自动刷新" },
   tradesFloat: { ru: "Float", en: "Float", zh: "磨损值" },
   tradesWear: { ru: "Износ", en: "Wear", zh: "磨损" },
+  tradesPaginationPrev: { ru: "← Назад", en: "← Prev", zh: "← 上一页" },
+  tradesPaginationNext: { ru: "Вперёд →", en: "Next →", zh: "下一页 →" },
 
   tradeStatus_pending: { ru: "Ожидает", en: "Pending", zh: "待处理" },
   tradeStatus_accepted_by_admin: { ru: "Принято", en: "Accepted", zh: "已接受" },
