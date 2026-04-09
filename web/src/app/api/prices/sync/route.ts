@@ -30,13 +30,47 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const started = Date.now();
-  const result = await syncPrices();
-  const elapsed = Date.now() - started;
+  // Stream JSON body so response headers are sent immediately. Otherwise cron clients
+  // (undici fetch) hit HeadersTimeoutError while waiting for a long sync with no headers yet.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const started = Date.now();
+      try {
+        const result = await syncPrices();
+        const elapsed = Date.now() - started;
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              ...result,
+              elapsedMs: elapsed,
+              syncedAt: new Date().toISOString(),
+            }),
+          ),
+        );
+        controller.close();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        controller.enqueue(
+          encoder.encode(
+            JSON.stringify({
+              upserted: 0,
+              errors: [msg],
+              elapsedMs: Date.now() - started,
+              syncedAt: new Date().toISOString(),
+            }),
+          ),
+        );
+        controller.close();
+      }
+    },
+  });
 
-  return NextResponse.json({
-    ...result,
-    elapsedMs: elapsed,
-    syncedAt: new Date().toISOString(),
+  return new NextResponse(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
   });
 }
