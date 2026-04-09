@@ -22,6 +22,7 @@ import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { prisma } from "@/lib/prisma";
 import { serializeTradeSummary } from "@/lib/trade-api-serialize";
 import { checkTradeBalance, MAX_TRADE_ITEMS_PER_SIDE } from "@/lib/trade-balance";
+import { queueTelegramNewTrade } from "@/lib/telegram-notify";
 import { fetchGuestInventory } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 
@@ -365,6 +366,11 @@ export async function POST(request: NextRequest) {
   });
 
   const ownerTradeUrl = process.env.OWNER_TRADE_URL ?? null;
+
+  queueTelegramNewTrade(trade, {
+    steamId: user.steamId,
+    displayName: user.displayName,
+  });
 
   return NextResponse.json({
     ok: true,

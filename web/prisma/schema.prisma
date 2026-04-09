@@ -145,6 +145,14 @@ model FxRatesSnapshot {
   fetchedAt DateTime
 }
 
+/** Prevents sending the same Telegram notification twice (trade id, chat message id, etc.). */
+model TelegramNotifyDedupe {
+  dedupeKey String   @id @db.VarChar(191)
+  createdAt DateTime @default(now())
+
+  @@map("telegram_notify_dedupe")
+}
+
 // Owner: trade-lock-only JSON from admin (e.g. Steam context 16 export). Normalized rows for merged public inventory; no server fetch of context 16.
 model OwnerManualTradeLockList {
   id                 String   @id @default("singleton")

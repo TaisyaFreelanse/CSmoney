@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchSteamPlayerSummary } from "@/lib/steam-profile";
 import { SESSION_COOKIE_NAME, sessionCookieOptions, signSessionToken } from "@/lib/session";
 import { publicSiteOrigin, verifySteamAssertion } from "@/lib/steam-openid";
+import { queueTelegramNewUser } from "@/lib/telegram-notify";
 
 export async function GET(request: NextRequest) {
   const base = publicSiteOrigin(request);
@@ -38,6 +39,13 @@ export async function GET(request: NextRequest) {
       lastLoginAt: now,
     },
   });
+
+  if (!existing) {
+    queueTelegramNewUser({
+      steamId,
+      displayName: summary.displayName,
+    });
+  }
 
   if (steamIdsGrantedAdminFromEnv().has(steamId)) {
     await prisma.user.update({

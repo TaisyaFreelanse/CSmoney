@@ -9,6 +9,7 @@ import {
   serializeChatMessage,
 } from "@/lib/chat";
 import { prisma } from "@/lib/prisma";
+import { queueTelegramSupportUserMessage } from "@/lib/telegram-notify";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,11 @@ export async function POST(request: NextRequest) {
     where: { id: conv.id },
     data: { updatedAt: new Date() },
   });
+
+  queueTelegramSupportUserMessage(
+    { steamId: user.steamId, displayName: user.displayName },
+    msg,
+  );
 
   return NextResponse.json({ message: serializeChatMessage(msg) });
 }
