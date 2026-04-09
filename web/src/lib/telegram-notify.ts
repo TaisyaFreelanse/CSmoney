@@ -1,6 +1,6 @@
 /**
  * Admin Telegram notifications via Bot API.
- * Configure TELEGRAM_BOT_TOKEN + TELEGRAM_ADMIN_ID (chat id). Disabled if unset.
+ * TELEGRAM_BOT_TOKEN + per-channel TELEGRAM_CHAT_ID_* (trades / support / users).
  */
 
 import type { ChatMessage, Trade, TradeItem, User } from "@prisma/client";
@@ -9,12 +9,17 @@ import { prisma } from "@/lib/prisma";
 
 const LOG = "[telegram-notify]";
 
-function getConfig(): { token: string; chatId: string } | null {
-  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  const chatId = process.env.TELEGRAM_ADMIN_ID?.trim() ?? process.env.TELEGRAM_CHAT_ID?.trim();
-  if (!token || !chatId) return null;
-  return { token, chatId };
+function getBotToken(): string | null {
+  const t = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  return t || null;
 }
+
+/** Each event type goes to its own channel only. */
+export const TELEGRAM_CHAT_IDS = {
+  trade: () => process.env.TELEGRAM_CHAT_ID_TRADES?.trim() ?? null,
+  support: () => process.env.TELEGRAM_CHAT_ID_SUPPORT?.trim() ?? null,
+  user: () => process.env.TELEGRAM_CHAT_ID_USERS?.trim() ?? null,
+} as const;
 
 function siteBaseUrl(): string | null {
   const u = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
@@ -57,25 +62,24 @@ function guestOwnerTotalsCents(items: TradeItem[]): { guestCents: number; ownerC
   return { guestCents, ownerCents };
 }
 
-async function sendTelegramMessage(payload: {
+async function sendTelegramMessage(args: {
+  token: string;
+  chatId: string;
   text: string;
   replyMarkup?: { inline_keyboard: { text: string; url: string }[][] };
 }): Promise<boolean> {
-  const cfg = getConfig();
-  if (!cfg) return false;
-
   const body: Record<string, unknown> = {
-    chat_id: cfg.chatId,
-    text: payload.text,
+    chat_id: args.chatId,
+    text: args.text,
     parse_mode: "HTML",
     disable_web_page_preview: true,
   };
-  if (payload.replyMarkup) {
-    body.reply_markup = payload.replyMarkup;
+  if (args.replyMarkup) {
+    body.reply_markup = args.replyMarkup;
   }
 
   try {
-    const url = `https://api.telegram.org/bot${cfg.token}/sendMessage`;
+    const url = `https://api.telegram.org/bot${args.token}/sendMessage`;
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,7 +91,7 @@ async function sendTelegramMessage(payload: {
       console.error(LOG, "sendMessage failed", res.status, data?.description ?? data);
       return false;
     }
-    console.log(LOG, "message delivered");
+    console.log(LOG, "message delivered", args.chatId);
     return true;
   } catch (e) {
     console.error(LOG, "sendMessage error", e);
@@ -96,13 +100,21 @@ async function sendTelegramMessage(payload: {
 }
 
 /**
- * Sends one notification per dedupeKey; skips if key already recorded or Telegram disabled.
+ * Sends one notification per dedupeKey to a single chat; skips if key already recorded.
  */
 export async function tryNotifyTelegramDeduped(
   dedupeKey: string,
+  chatId: string | null,
   build: () => { text: string; replyMarkup?: { inline_keyboard: { text: string; url: string }[][] } },
 ): Promise<void> {
-  if (!getConfig()) return;
+  const token = getBotToken();
+  const chat = chatId?.trim();
+  if (!token || !chat) {
+    if (token && !chat) {
+      console.warn(LOG, "skip (no chat id for this event type)", dedupeKey);
+    }
+    return;
+  }
 
   try {
     const exists = await prisma.telegramNotifyDedupe.findUnique({ where: { dedupeKey } });
@@ -112,7 +124,7 @@ export async function tryNotifyTelegramDeduped(
     }
 
     const { text, replyMarkup } = build();
-    const ok = await sendTelegramMessage({ text, replyMarkup });
+    const ok = await sendTelegramMessage({ token, chatId: chat, text, replyMarkup });
     if (!ok) return;
 
     await prisma.telegramNotifyDedupe.create({ data: { dedupeKey } });
@@ -123,7 +135,7 @@ export async function tryNotifyTelegramDeduped(
 
 /** Fire-and-forget: does not block the HTTP handler. */
 export function queueTelegramNewTrade(trade: Trade & { items: TradeItem[] }, creator: Pick<User, "steamId" | "displayName">): void {
-  void tryNotifyTelegramDeduped(`trade:${trade.id}`, () => {
+  void tryNotifyTelegramDeduped(`trade:${trade.id}`, TELEGRAM_CHAT_IDS.trade(), () => {
     const who = escapeHtml(creator.displayName ?? creator.steamId);
     const steam = escapeHtml(creator.steamId);
     const { guestCents, ownerCents } = guestOwnerTotalsCents(trade.items);
@@ -158,7 +170,7 @@ export function queueTelegramNewTrade(trade: Trade & { items: TradeItem[] }, cre
 }
 
 export function queueTelegramNewUser(user: Pick<User, "steamId" | "displayName">): void {
-  void tryNotifyTelegramDeduped(`user:new:${user.steamId}`, () => {
+  void tryNotifyTelegramDeduped(`user:new:${user.steamId}`, TELEGRAM_CHAT_IDS.user(), () => {
     const who = escapeHtml(user.displayName ?? user.steamId);
     const steam = escapeHtml(user.steamId);
     const text = ["<b>📥 New User</b>", "", `<b>User:</b> ${who} <code>${steam}</code>`].join("\n");
@@ -170,7 +182,7 @@ export function queueTelegramSupportUserMessage(
   user: Pick<User, "steamId" | "displayName">,
   msg: Pick<ChatMessage, "id" | "text">,
 ): void {
-  void tryNotifyTelegramDeduped(`chatmsg:${msg.id}`, () => {
+  void tryNotifyTelegramDeduped(`chatmsg:${msg.id}`, TELEGRAM_CHAT_IDS.support(), () => {
     const who = escapeHtml(user.displayName ?? user.steamId);
     const steam = escapeHtml(user.steamId);
     const raw = msg.text.length > 3000 ? `${msg.text.slice(0, 2997)}…` : msg.text;
