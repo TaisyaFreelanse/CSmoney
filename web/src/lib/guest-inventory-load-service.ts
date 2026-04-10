@@ -17,6 +17,14 @@ import {
 } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 
+/** API добирает asset'ы, которых нет в ответе trade page / частичной пагинации; при совпадении id приоритет у браузера. */
+function mergeGuestInventoriesPreferBrowser(browserItems: NormalizedItem[], apiItems: NormalizedItem[]): NormalizedItem[] {
+  const m = new Map<string, NormalizedItem>();
+  for (const i of apiItems) m.set(i.assetId, i);
+  for (const i of browserItems) m.set(i.assetId, i);
+  return [...m.values()];
+}
+
 const STALE_WARNING_MS = 24 * 60 * 60 * 1000;
 const SHORT_UNSTABLE_COOLDOWN_MS = 15 * 60 * 1000;
 const RETRY_STEAM_BUSY_MS = 15_000;
@@ -250,7 +258,24 @@ async function runGuestInventoryLoad(
     return null;
   };
 
+  /** Добор полного списка через API сразу после trade page (одна логическая загрузка — без лишнего 15s spacing). */
+  const supplementFromApiAfterBrowser = async (browserItems: NormalizedItem[]): Promise<NormalizedItem[]> => {
+    const g = await runThroughSteamGuestGate(() => fetchGuestInventoryBySteamId64(steamId64), {
+      skipMinSpacing: true,
+    });
+    if (!g.ok) {
+      return browserItems;
+    }
+    const api = g.value;
+    if (!api.ok) {
+      return browserItems;
+    }
+    return mergeGuestInventoriesPreferBrowser(browserItems, api.items);
+  };
+
   if (useBrowser) {
+    // При наличии сессионных cookie всегда сначала trade URL (Puppeteer) для get / force_refresh / trade_validate;
+    // публичный API — fallback или добор к ответу страницы.
     const g1 = await gatePuppeteer(tradeUrl);
     if (g1.kind === "queue_full") {
       return queueFullResponse(snap, flags);
@@ -258,7 +283,7 @@ async function runGuestInventoryLoad(
     const p1 = g1.p;
 
     if (p1.ok) {
-      items = normalizeInventory(p1.raw, p1.steamId64);
+      items = await supplementFromApiAfterBrowser(normalizeInventory(p1.raw, p1.steamId64));
       mark2hAfterSuccess = true;
     } else if (p1.reason === "rate_limited") {
       await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
@@ -271,7 +296,7 @@ async function runGuestInventoryLoad(
       }
       const p2 = g2.p;
       if (p2.ok) {
-        items = normalizeInventory(p2.raw, p2.steamId64);
+        items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
         mark2hAfterSuccess = true;
       } else if (p2.reason === "rate_limited") {
         await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
@@ -290,7 +315,7 @@ async function runGuestInventoryLoad(
       }
       const p2 = g2.p;
       if (p2.ok) {
-        items = normalizeInventory(p2.raw, p2.steamId64);
+        items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
         mark2hAfterSuccess = true;
       } else if (p2.reason === "rate_limited") {
         await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);

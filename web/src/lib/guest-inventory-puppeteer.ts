@@ -5,8 +5,13 @@ import type { Browser, Page } from "puppeteer";
 import { parseTradeUrl, steamId64FromPartner } from "@/lib/steam-inventory";
 
 const LOG = "[guest-inv-puppeteer]";
-const MAX_BROWSER_MS = 15_000;
-const GOTO_TIMEOUT_MS = 10_000;
+/** Large inventories need several paginated XHRs; allow time for them + gate spacing. */
+const MAX_BROWSER_MS = 28_000;
+const GOTO_TIMEOUT_MS = 12_000;
+/** After last inventory JSON, wait this long before treating pagination as finished. */
+const INVENTORY_JSON_IDLE_MS = 1100;
+/** If `more_items` stays true but no new JSON arrives, stop and let API merge complete the list. */
+const INVENTORY_JSON_STALL_WHILE_MORE_MS = 2800;
 
 export type PuppeteerGuestInventoryResult =
   | { ok: true; raw: unknown; steamId64: string }
@@ -170,6 +175,9 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
   const jsonChunks: unknown[] = [];
   /** At least one 200 JSON payload was appended from an inventory URL (may be empty `assets`). */
   let receivedInventoryJsonPayload = false;
+  /** From the most recent inventory JSON body (`more_items` / pagination). */
+  let lastResponseHadMoreItems = false;
+  let lastInventoryJsonAt = 0;
   let saw403Inventory = false;
   let saw401Inventory = false;
   let saw429Inventory = false;
@@ -216,7 +224,10 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         .then((data) => {
           if (data && typeof data === "object") {
             receivedInventoryJsonPayload = true;
+            lastInventoryJsonAt = Date.now();
             jsonChunks.push(data);
+            const o = data as Record<string, unknown>;
+            lastResponseHadMoreItems = o.more_items === true;
           }
         })
         .catch(() => {});
@@ -227,21 +238,40 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
 
     const gotoMs = Math.min(GOTO_TIMEOUT_MS, Math.max(3000, timeLeft() - 500));
     await page.goto(canonical, { waitUntil: "domcontentloaded", timeout: gotoMs });
+    lastInventoryJsonAt = Date.now();
 
-    while (timeLeft() > 400) {
+    while (timeLeft() > 350) {
+      const idle = lastInventoryJsonAt > 0 ? Date.now() - lastInventoryJsonAt : 0;
       const mergedTry = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
-      if (mergedTry.assets && mergedTry.assets.length > 0) {
-        console.log(LOG, "ok assets=", mergedTry.assets.length, "steamId64=", steamId64);
-        return { ok: true, raw: mergedTry, steamId64 };
+      const n = mergedTry.assets?.length ?? 0;
+
+      if (receivedInventoryJsonPayload) {
+        if (!lastResponseHadMoreItems && idle >= INVENTORY_JSON_IDLE_MS) {
+          console.log(LOG, "ok assets=", n, "steamId64=", steamId64, "more_items=false idle=", idle);
+          return { ok: true, raw: mergedTry, steamId64 };
+        }
+        if (lastResponseHadMoreItems && idle >= INVENTORY_JSON_STALL_WHILE_MORE_MS && n > 0) {
+          console.log(
+            LOG,
+            "ok partial pagination stall assets=",
+            n,
+            "steamId64=",
+            steamId64,
+            "idle=",
+            idle,
+          );
+          return { ok: true, raw: mergedTry, steamId64 };
+        }
       }
-      await new Promise((r) => setTimeout(r, 320));
+
+      await new Promise((r) => setTimeout(r, 280));
     }
 
     if (timeLeft() <= 0) {
       return { ok: false, reason: "timeout", detail: "max_browser_time" };
     }
 
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
 
     const mergedEarly = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
     if (

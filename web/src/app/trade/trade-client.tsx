@@ -135,8 +135,8 @@ const SORT_KEYS = [
 const ITEMS_PER_PAGE = 48;
 const SKELETON_CARD_COUNT = 30;
 
-/** Align with server `INVENTORY_ME_SOFT_INTERVAL_MS` — do not hammer GET /api/inventory/me. */
-const MY_INV_MIN_FETCH_INTERVAL_MS = 4000;
+/** Min spacing between GET /api/inventory/me (3–5s; aligns with server soft limit). */
+const MY_INV_MIN_FETCH_INTERVAL_MS = 4500;
 
 type MyInvGuestMeta = {
   steamBusy: boolean;
@@ -281,7 +281,11 @@ export default function TradePageClient({
   const [myInvGuestMeta, setMyInvGuestMeta] = useState<MyInvGuestMeta>(EMPTY_MY_INV_GUEST_META);
   const [privateInventoryRetryUsed, setPrivateInventoryRetryUsed] = useState(false);
 
-  const lastMyInvFetchAtRef = useRef(0);
+  /** Earliest time the next `/api/inventory/me` may start (min interval + server `retryAfterMs`). */
+  const myInvNextAllowedAtRef = useRef(0);
+  const myInvLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const myInvAutoRetryTimerRef = useRef<number | null>(null);
+  const loadMyInventoryRef = useRef<() => Promise<void>>(async () => {});
 
   const [selectedMy, setSelectedMy] = useState<Set<string>>(new Set());
   const [selectedOwner, setSelectedOwner] = useState<Set<string>>(new Set());
@@ -609,18 +613,48 @@ export default function TradePageClient({
     }
   }, []);
 
-  const loadMyInventory = useCallback(
-    async (opts?: { force?: boolean }) => {
-      const now = Date.now();
-      if (!opts?.force && now - lastMyInvFetchAtRef.current < MY_INV_MIN_FETCH_INTERVAL_MS) {
-        return;
-      }
-      lastMyInvFetchAtRef.current = now;
+  const bumpMyInvNextAllowedAfterResponse = (data: Record<string, unknown> | null) => {
+    const now = Date.now();
+    const withMin = now + MY_INV_MIN_FETCH_INTERVAL_MS;
+    let target = withMin;
+    if (data && typeof data.retryAfterMs === "number" && Number.isFinite(data.retryAfterMs) && data.retryAfterMs > 0) {
+      target = Math.max(target, now + data.retryAfterMs);
+    }
+    myInvNextAllowedAtRef.current = Math.max(myInvNextAllowedAtRef.current, target);
+  };
+
+  const clearMyInvAutoRetryTimer = () => {
+    if (myInvAutoRetryTimerRef.current != null) {
+      clearTimeout(myInvAutoRetryTimerRef.current);
+      myInvAutoRetryTimerRef.current = null;
+    }
+  };
+
+  const loadMyInventory = useCallback(async () => {
+    if (myInvLoadPromiseRef.current) {
+      return myInvLoadPromiseRef.current;
+    }
+
+    const p = (async () => {
+      clearMyInvAutoRetryTimer();
+
+      const sleepUntilMyInvAllowed = async () => {
+        for (;;) {
+          const now = Date.now();
+          const until = myInvNextAllowedAtRef.current;
+          if (now >= until) break;
+          const chunk = Math.min(until - now, 60_000);
+          await new Promise<void>((r) => setTimeout(r, chunk));
+        }
+      };
+
+      await sleepUntilMyInvAllowed();
 
       let res: Response;
       try {
         res = await fetch("/api/inventory/me", { credentials: "include" });
       } catch {
+        bumpMyInvNextAllowedAfterResponse(null);
         setMyInvGuestMeta((prev) => ({
           ...prev,
           fetchError: `${t("errorInventory", lang)}: ${t("errorGeneric", lang)}`,
@@ -629,6 +663,7 @@ export default function TradePageClient({
       }
 
       const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+      bumpMyInvNextAllowedAfterResponse(data);
 
       if (!isGuestStyleInventoryPayload(data)) {
         setMyInvGuestMeta(EMPTY_MY_INV_GUEST_META);
@@ -697,9 +732,38 @@ export default function TradePageClient({
       });
 
       syncMyCooldownFromMePayload(data);
-    },
-    [lang, syncMyCooldownFromMePayload],
-  );
+
+      clearMyInvAutoRetryTimer();
+      if (steamBusy) {
+        const delay =
+          retryAfterMs != null && retryAfterMs > 0
+            ? Math.max(retryAfterMs, MY_INV_MIN_FETCH_INTERVAL_MS)
+            : Math.max(15_000, MY_INV_MIN_FETCH_INTERVAL_MS);
+        myInvAutoRetryTimerRef.current = window.setTimeout(() => {
+          myInvAutoRetryTimerRef.current = null;
+          void loadMyInventoryRef.current();
+        }, delay);
+      } else if (shouldAutoRetry && steamUnstable) {
+        const delay =
+          retryAfterMs != null && retryAfterMs > 0
+            ? Math.max(retryAfterMs, MY_INV_MIN_FETCH_INTERVAL_MS)
+            : Math.max(60_000, MY_INV_MIN_FETCH_INTERVAL_MS);
+        myInvAutoRetryTimerRef.current = window.setTimeout(() => {
+          myInvAutoRetryTimerRef.current = null;
+          void loadMyInventoryRef.current();
+        }, delay);
+      }
+    })();
+
+    myInvLoadPromiseRef.current = p;
+    try {
+      await p;
+    } finally {
+      myInvLoadPromiseRef.current = null;
+    }
+  }, [lang, syncMyCooldownFromMePayload]);
+
+  loadMyInventoryRef.current = loadMyInventory;
 
   useEffect(() => {
     const ac = new AbortController();
@@ -758,25 +822,14 @@ export default function TradePageClient({
   }, [myInvGuestMeta.isPrivate]);
 
   useEffect(() => {
-    if (!myInvGuestMeta.steamBusy) return;
-    const ms = Math.max(myInvGuestMeta.retryAfterMs ?? 15_000, 1000);
-    const id = window.setTimeout(() => void loadMyInventory({ force: true }), ms);
-    return () => clearTimeout(id);
-  }, [myInvGuestMeta.steamBusy, myInvGuestMeta.retryAfterMs, loadMyInventory]);
-
-  useEffect(() => {
-    if (!myInvGuestMeta.shouldAutoRetry || !myInvGuestMeta.steamUnstable) return;
-    if (myInvGuestMeta.steamBusy) return;
-    const ms = Math.max(myInvGuestMeta.retryAfterMs ?? 60_000, 3000);
-    const id = window.setTimeout(() => void loadMyInventory({ force: true }), ms);
-    return () => clearTimeout(id);
-  }, [
-    myInvGuestMeta.shouldAutoRetry,
-    myInvGuestMeta.steamUnstable,
-    myInvGuestMeta.steamBusy,
-    myInvGuestMeta.retryAfterMs,
-    loadMyInventory,
-  ]);
+    const tr = myInvAutoRetryTimerRef;
+    return () => {
+      if (tr.current != null) {
+        clearTimeout(tr.current);
+        tr.current = null;
+      }
+    };
+  }, []);
 
   const saveTradeUrl = useCallback(async () => {
     setError(null);
@@ -790,7 +843,7 @@ export default function TradePageClient({
       setEditingTradeUrl(false);
       setMyInventoryLoading(true);
       try {
-        await loadMyInventory({ force: true });
+        await loadMyInventory();
       } finally {
         setMyInventoryLoading(false);
       }
@@ -837,7 +890,7 @@ export default function TradePageClient({
       side: "owner" | "my",
       setR: (b: boolean) => void,
       setC: (n: number) => void,
-      reload: (opts?: { force?: boolean }) => Promise<void>,
+      reload: () => Promise<void>,
     ) => {
       setR(true);
       if (side === "owner") setError(null);
@@ -868,6 +921,12 @@ export default function TradePageClient({
         if (res.status === 429) {
           const ra = typeof data?.retryAfterMs === "number" ? data.retryAfterMs : 0;
           setC(Math.ceil(ra / 1000));
+          if (ra > 0) {
+            myInvNextAllowedAtRef.current = Math.max(
+              myInvNextAllowedAtRef.current,
+              Date.now() + Math.max(ra, MY_INV_MIN_FETCH_INTERVAL_MS),
+            );
+          }
           const msg =
             typeof data?.message === "string" ? data.message : t("invRefreshCooldownHint", lang);
           setMyInvGuestMeta((prev) => ({
@@ -884,7 +943,7 @@ export default function TradePageClient({
           const ms =
             typeof data?.refreshCooldownRemainingMs === "number" ? data.refreshCooldownRemainingMs : fallback;
           setC(Math.ceil(ms / 1000));
-          await reload({ force: true });
+          await reload();
         } else {
           setMyInvGuestMeta((prev) => ({
             ...prev,
@@ -1416,7 +1475,7 @@ export default function TradePageClient({
                 type="button"
                 onClick={() => {
                   setPrivateInventoryRetryUsed(true);
-                  void loadMyInventory({ force: true });
+                  void loadMyInventory();
                 }}
                 className="rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-[11px] text-zinc-200 hover:bg-zinc-800 sm:text-xs"
               >
