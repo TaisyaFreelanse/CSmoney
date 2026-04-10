@@ -212,6 +212,61 @@ const T: Translations = {
 
   searchPlaceholder: { ru: "Поиск предметов...", en: "Search items...", zh: "搜索物品..." },
   refreshInventory: { ru: "Обновить инвентарь", en: "Refresh inventory", zh: "刷新库存" },
+  invSteamBusy: {
+    ru: "Steam перегружен. Повторим загрузку автоматически.",
+    en: "Steam is overloaded. We will retry loading automatically.",
+    zh: "Steam 繁忙，将自动重试加载。",
+  },
+  invSteamUnstable: {
+    ru: "Steam отвечает нестабильно. Показан кэш; данные могут быть неполными.",
+    en: "Steam is responding unstably. Showing cache; data may be incomplete.",
+    zh: "Steam 响应不稳定。显示缓存，数据可能不完整。",
+  },
+  invInventoryPrivate: {
+    ru: "Инвентарь скрыт настройками приватности Steam. Откройте раздел конфиденциальности и разрешите просмотр инвентаря.",
+    en: "Your inventory is hidden by Steam privacy settings. Open privacy settings and allow inventory visibility.",
+    zh: "库存因 Steam 隐私设置被隐藏。请打开隐私设置并允许查看库存。",
+  },
+  invOpenSteamPrivacy: {
+    ru: "Настройки приватности Steam",
+    en: "Steam privacy settings",
+    zh: "Steam 隐私设置",
+  },
+  invRetryInventoryOnce: {
+    ru: "Повторить загрузку",
+    en: "Try loading again",
+    zh: "重试加载",
+  },
+  invCannotTrade: {
+    ru: "Обмен через Steam для этого аккаунта сейчас недоступен. Отправить заявку на обмен нельзя.",
+    en: "Steam trading is not available for this account right now. You cannot submit a trade request.",
+    zh: "该账号目前无法通过 Steam 交易，无法提交交换申请。",
+  },
+  invCooldownActive: {
+    ru: "До следующего обновления инвентаря:",
+    en: "Next inventory refresh in:",
+    zh: "下次刷新库存：",
+  },
+  invInventoryEmpty: {
+    ru: "Инвентарь пуст",
+    en: "Inventory is empty",
+    zh: "库存为空",
+  },
+  invStaleDataTitle: {
+    ru: "Данные могли устареть",
+    en: "Data may be outdated",
+    zh: "数据可能已过期",
+  },
+  invStaleRefreshCta: {
+    ru: "Обновить с сервера",
+    en: "Refresh from server",
+    zh: "从服务器刷新",
+  },
+  invRefreshCooldownHint: {
+    ru: "Обновление временно недоступно. Дождитесь окончания таймера.",
+    en: "Refresh is temporarily unavailable. Please wait for the timer.",
+    zh: "暂时无法刷新，请等待倒计时结束。",
+  },
   nextRefreshIn: { ru: "Следующее обновление через", en: "Next refresh in", zh: "下次刷新在" },
   changeTradeUrl: { ru: "Изменить trade-ссылку", en: "Change trade URL", zh: "更改交易链接" },
 

@@ -18,14 +18,14 @@ import {
   resolveGuestInventoryTargetSteamId,
   warnIfGuestSteamIdEqualsOwner,
 } from "@/lib/guest-inventory-target";
-import { getCached, setCache } from "@/lib/inventory-cache";
+import { getCached } from "@/lib/inventory-cache";
 import { centsCountedInTradeTotal, resolvePricesBatch } from "@/lib/pricempire";
 import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 import { prisma } from "@/lib/prisma";
 import { serializeTradeSummary } from "@/lib/trade-api-serialize";
 import { checkTradeBalance, MAX_TRADE_ITEMS_PER_SIDE } from "@/lib/trade-balance";
 import { queueTelegramNewTrade } from "@/lib/telegram-notify";
-import { fetchGuestInventory } from "@/lib/steam-inventory";
+import { loadGuestInventoryForUser } from "@/lib/guest-inventory-load-service";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 
 export const dynamic = "force-dynamic";
@@ -193,15 +193,24 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
-    const res = await fetchGuestInventory(user.tradeUrl);
-    if (!res.ok) {
+    const loaded = await loadGuestInventoryForUser({
+      userSteamId: user.steamId,
+      tradeUrl: user.tradeUrl,
+      guestTargetSteamId,
+      mode: "trade_validate",
+    });
+    if (!loaded.ok) {
       return NextResponse.json(
-        { error: "guest_inventory_unavailable", message: "Ваш инвентарь недоступен" },
+        {
+          error: "guest_inventory_unavailable",
+          message: "Ваш инвентарь недоступен",
+          detail: loaded.error,
+          ...loaded.flags,
+        },
         { status: 502 },
       );
     }
-    guestInv = res.items;
-    await setCache(guestTargetSteamId, guestInv);
+    guestInv = loaded.items;
   }
 
   const ownerMap = new Map<string, OwnerPublicInventoryRow>(

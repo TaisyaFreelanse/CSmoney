@@ -746,8 +746,14 @@ async function fetchViaCommunityNew(
       if (page === 0) {
         const sample = (json.assets ?? []).slice(0, 5);
         for (const a of sample) {
-          const desc = (json.descriptions ?? []).find((d: any) => d.classid === a.classid && d.instanceid === a.instanceid);
-          if (desc) console.log(`[steam-inv] sample: ${desc.name} tradable=${desc.tradable} marketable=${desc.marketable}`);
+          const asset = a as Record<string, unknown>;
+          const desc = (json.descriptions ?? []).find((d: Record<string, unknown>) => {
+            return d.classid === asset.classid && d.instanceid === asset.instanceid;
+          });
+          if (desc)
+            console.log(
+              `[steam-inv] sample: ${String(desc.name)} tradable=${String(desc.tradable)} marketable=${String(desc.marketable)}`,
+            );
         }
       }
 
@@ -863,6 +869,13 @@ export async function fetchGuestInventory(
   if (!parsed) return { ok: false, error: "invalid_trade_url" };
 
   const steamId64 = steamId64FromPartner(parsed.partner);
+  return fetchGuestInventoryBySteamId64(steamId64);
+}
+
+/** Direct community inventory fetch by SteamID64 (same strategies as trade-URL flow). */
+export async function fetchGuestInventoryBySteamId64(
+  steamId64: string,
+): Promise<{ ok: true; items: NormalizedItem[] } | { ok: false; error: string }> {
   const result = await fetchSteamInventoryRaw(steamId64, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
   if (!result.ok) return result;
   return { ok: true, items: normalizeInventory(result.data, steamId64) };

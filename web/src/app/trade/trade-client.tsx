@@ -135,6 +135,71 @@ const SORT_KEYS = [
 const ITEMS_PER_PAGE = 48;
 const SKELETON_CARD_COUNT = 30;
 
+/** Align with server `INVENTORY_ME_SOFT_INTERVAL_MS` — do not hammer GET /api/inventory/me. */
+const MY_INV_MIN_FETCH_INTERVAL_MS = 4000;
+
+type MyInvGuestMeta = {
+  steamBusy: boolean;
+  steamUnstable: boolean;
+  isPrivate: boolean;
+  cannotTrade: boolean;
+  cooldownActive: boolean;
+  softRateLimited: boolean;
+  skipSteamFetch: boolean;
+  needsRefreshWarning: boolean;
+  retryAfterMs: number | null;
+  nextRefreshAt: string | null;
+  shouldAutoRetry: boolean;
+  fetchError: string | null;
+};
+
+const EMPTY_MY_INV_GUEST_META: MyInvGuestMeta = {
+  steamBusy: false,
+  steamUnstable: false,
+  isPrivate: false,
+  cannotTrade: false,
+  cooldownActive: false,
+  softRateLimited: false,
+  skipSteamFetch: false,
+  needsRefreshWarning: false,
+  retryAfterMs: null,
+  nextRefreshAt: null,
+  shouldAutoRetry: false,
+  fetchError: null,
+};
+
+type GuestInvPhase =
+  | "steamBusy"
+  | "steamUnstable"
+  | "isPrivate"
+  | "cannotTrade"
+  | "cooldownActive"
+  | "softRateLimited"
+  | "normal";
+
+function isGuestStyleInventoryPayload(d: Record<string, unknown> | null): boolean {
+  if (!d) return false;
+  if (d.guestInventory === true) return true;
+  return (
+    "softRateLimited" in d ||
+    "steamBusy" in d ||
+    "isPrivate" in d ||
+    "cannotTrade" in d ||
+    "needsRefreshWarning" in d ||
+    ("cooldownActive" in d && "skipSteamFetch" in d)
+  );
+}
+
+function resolveGuestInvPhase(m: MyInvGuestMeta): GuestInvPhase {
+  if (m.steamBusy) return "steamBusy";
+  if (m.steamUnstable) return "steamUnstable";
+  if (m.isPrivate) return "isPrivate";
+  if (m.cannotTrade) return "cannotTrade";
+  if (m.cooldownActive) return "cooldownActive";
+  if (m.softRateLimited) return "softRateLimited";
+  return "normal";
+}
+
 const CURRENCIES = [
   { code: "USD" as const, symbol: "$", flag: "🇺🇸", rate: DEFAULT_FX_RATES.USD },
   { code: "EUR" as const, symbol: "€", flag: "🇪🇺", rate: DEFAULT_FX_RATES.EUR },
@@ -213,6 +278,10 @@ export default function TradePageClient({
   const [myRefreshing, setMyRefreshing] = useState(false);
   const [ownerCooldown, setOwnerCooldown] = useState(0);
   const [myCooldown, setMyCooldown] = useState(0);
+  const [myInvGuestMeta, setMyInvGuestMeta] = useState<MyInvGuestMeta>(EMPTY_MY_INV_GUEST_META);
+  const [privateInventoryRetryUsed, setPrivateInventoryRetryUsed] = useState(false);
+
+  const lastMyInvFetchAtRef = useRef(0);
 
   const [selectedMy, setSelectedMy] = useState<Set<string>>(new Set());
   const [selectedOwner, setSelectedOwner] = useState<Set<string>>(new Set());
@@ -525,19 +594,112 @@ export default function TradePageClient({
     [lang],
   );
 
-  const loadMyInventory = useCallback(async () => {
-    const res = await fetch("/api/inventory/me", { credentials: "include" });
-    const data = await res.json().catch(() => null);
-    if (res.ok && data?.items) {
-      setMyItems(data.items);
-      if (typeof data.refreshCooldownRemainingMs === "number" && data.refreshCooldownRemainingMs > 0) {
-        setMyCooldown(Math.ceil(data.refreshCooldownRemainingMs / 1000));
+  const syncMyCooldownFromMePayload = useCallback((data: Record<string, unknown>) => {
+    if (typeof data.refreshCooldownRemainingMs === "number" && data.refreshCooldownRemainingMs > 0) {
+      setMyCooldown(Math.ceil(data.refreshCooldownRemainingMs / 1000));
+      return;
+    }
+    if (data.cooldownActive === true && typeof data.nextRefreshAt === "string") {
+      const ms = new Date(data.nextRefreshAt).getTime() - Date.now();
+      if (ms > 0) setMyCooldown(Math.ceil(ms / 1000));
+      return;
+    }
+    if (data.cooldownActive === true && typeof data.retryAfterMs === "number" && data.retryAfterMs > 0) {
+      setMyCooldown(Math.ceil(data.retryAfterMs / 1000));
+    }
+  }, []);
+
+  const loadMyInventory = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const now = Date.now();
+      if (!opts?.force && now - lastMyInvFetchAtRef.current < MY_INV_MIN_FETCH_INTERVAL_MS) {
+        return;
       }
-    } else if (data?.error !== "trade_url_required" && data?.error !== "unauthorized")
-      setError(
-        `${t("errorInventory", lang)}: ${typeof data?.message === "string" ? data.message : (data?.error ?? t("errorGeneric", lang))}`,
-      );
-  }, [lang]);
+      lastMyInvFetchAtRef.current = now;
+
+      let res: Response;
+      try {
+        res = await fetch("/api/inventory/me", { credentials: "include" });
+      } catch {
+        setMyInvGuestMeta((prev) => ({
+          ...prev,
+          fetchError: `${t("errorInventory", lang)}: ${t("errorGeneric", lang)}`,
+        }));
+        return;
+      }
+
+      const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+
+      if (!isGuestStyleInventoryPayload(data)) {
+        setMyInvGuestMeta(EMPTY_MY_INV_GUEST_META);
+        if (res.ok && data && Array.isArray(data.items)) {
+          setMyItems(data.items as InventoryItem[]);
+          syncMyCooldownFromMePayload(data);
+        } else if (data?.error !== "trade_url_required" && data?.error !== "unauthorized") {
+          setMyInvGuestMeta({
+            ...EMPTY_MY_INV_GUEST_META,
+            fetchError: `${t("errorInventory", lang)}: ${typeof data?.message === "string" ? data.message : typeof data?.error === "string" ? data.error : t("errorGeneric", lang)}`,
+          });
+        }
+        return;
+      }
+
+      if (!data) return;
+
+      const steamBusy = data.steamBusy === true;
+      const steamUnstable = data.steamUnstable === true;
+      const isPrivate = data.isPrivate === true;
+      const cannotTrade = data.cannotTrade === true;
+      const cooldownActive = data.cooldownActive === true;
+      const softRateLimited = data.softRateLimited === true;
+      const skipSteamFetch = data.skipSteamFetch === true;
+      const needsRefreshWarning = data.needsRefreshWarning === true;
+      const retryAfterMs = typeof data.retryAfterMs === "number" ? data.retryAfterMs : null;
+      const nextRefreshAt = typeof data.nextRefreshAt === "string" ? data.nextRefreshAt : null;
+      const itemsArr = Array.isArray(data.items) ? (data.items as InventoryItem[]) : null;
+      const shouldAutoRetry =
+        typeof data.shouldAutoRetry === "boolean"
+          ? data.shouldAutoRetry
+          : steamUnstable && !!itemsArr && itemsArr.length > 0;
+
+      if (res.ok && itemsArr) {
+        setMyItems(itemsArr);
+      }
+
+      const structuredErrBanner =
+        steamBusy ||
+        steamUnstable ||
+        isPrivate ||
+        cannotTrade ||
+        cooldownActive ||
+        softRateLimited;
+
+      setMyInvGuestMeta({
+        steamBusy,
+        steamUnstable,
+        isPrivate,
+        cannotTrade,
+        cooldownActive,
+        softRateLimited,
+        skipSteamFetch,
+        needsRefreshWarning,
+        retryAfterMs,
+        nextRefreshAt,
+        shouldAutoRetry,
+        fetchError:
+          res.ok || softRateLimited
+            ? null
+            : !res.ok && !structuredErrBanner
+              ? typeof data.message === "string"
+                ? data.message
+                : `${t("errorInventory", lang)}: ${typeof data.error === "string" ? data.error : t("errorGeneric", lang)}`
+              : null,
+      });
+
+      syncMyCooldownFromMePayload(data);
+    },
+    [lang, syncMyCooldownFromMePayload],
+  );
 
   useEffect(() => {
     const ac = new AbortController();
@@ -591,6 +753,31 @@ export default function TradePageClient({
     };
   }, [loadOwner, loadMyInventory]);
 
+  useEffect(() => {
+    if (!myInvGuestMeta.isPrivate) setPrivateInventoryRetryUsed(false);
+  }, [myInvGuestMeta.isPrivate]);
+
+  useEffect(() => {
+    if (!myInvGuestMeta.steamBusy) return;
+    const ms = Math.max(myInvGuestMeta.retryAfterMs ?? 15_000, 1000);
+    const id = window.setTimeout(() => void loadMyInventory({ force: true }), ms);
+    return () => clearTimeout(id);
+  }, [myInvGuestMeta.steamBusy, myInvGuestMeta.retryAfterMs, loadMyInventory]);
+
+  useEffect(() => {
+    if (!myInvGuestMeta.shouldAutoRetry || !myInvGuestMeta.steamUnstable) return;
+    if (myInvGuestMeta.steamBusy) return;
+    const ms = Math.max(myInvGuestMeta.retryAfterMs ?? 60_000, 3000);
+    const id = window.setTimeout(() => void loadMyInventory({ force: true }), ms);
+    return () => clearTimeout(id);
+  }, [
+    myInvGuestMeta.shouldAutoRetry,
+    myInvGuestMeta.steamUnstable,
+    myInvGuestMeta.steamBusy,
+    myInvGuestMeta.retryAfterMs,
+    loadMyInventory,
+  ]);
+
   const saveTradeUrl = useCallback(async () => {
     setError(null);
     const res = await fetch("/api/profile/trade-url", {
@@ -603,14 +790,7 @@ export default function TradePageClient({
       setEditingTradeUrl(false);
       setMyInventoryLoading(true);
       try {
-        const myRes = await fetch("/api/inventory/me", { credentials: "include" });
-        if (myRes.ok) {
-          const d = await myRes.json();
-          setMyItems(d.items ?? []);
-          if (typeof d.refreshCooldownRemainingMs === "number" && d.refreshCooldownRemainingMs > 0) {
-            setMyCooldown(Math.ceil(d.refreshCooldownRemainingMs / 1000));
-          }
-        }
+        await loadMyInventory({ force: true });
       } finally {
         setMyInventoryLoading(false);
       }
@@ -618,7 +798,7 @@ export default function TradePageClient({
       const err = await res.json().catch(() => null);
       setError(err?.message ?? t("errorSaveTradeUrl", lang));
     }
-  }, [tradeUrl]);
+  }, [tradeUrl, lang, loadMyInventory]);
 
   // ------ cooldown ------
   useEffect(() => {
@@ -652,20 +832,76 @@ export default function TradePageClient({
     return () => clearInterval(t);
   }, [ownerCooldown, myCooldown]);
 
-  const doRefresh = useCallback(async (side: "owner" | "my", setR: (b: boolean) => void, setC: (n: number) => void, reload: () => Promise<void>) => {
-    setR(true); setError(null);
-    try {
-      const res = await fetch("/api/inventory/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ side }) });
-      const data = await res.json().catch(() => null);
-      if (res.status === 429) setC(Math.ceil((data?.retryAfterMs ?? 0) / 1000));
-      else if (res.ok) {
-        const fallback = side === "my" ? USER_REFRESH_COOLDOWN_MS : OWNER_REFRESH_COOLDOWN_MS;
-        const ms = typeof data?.refreshCooldownRemainingMs === "number" ? data.refreshCooldownRemainingMs : fallback;
-        setC(Math.ceil(ms / 1000));
-        await reload();
-      } else setError(data?.message ?? t("errorRefresh", lang));
-    } finally { setR(false); }
-  }, [lang]);
+  const doRefresh = useCallback(
+    async (
+      side: "owner" | "my",
+      setR: (b: boolean) => void,
+      setC: (n: number) => void,
+      reload: (opts?: { force?: boolean }) => Promise<void>,
+    ) => {
+      setR(true);
+      if (side === "owner") setError(null);
+      if (side === "my") {
+        setMyInvGuestMeta((prev) => ({ ...prev, fetchError: null }));
+      }
+      try {
+        const res = await fetch("/api/inventory/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ side }),
+        });
+        const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+        if (side === "owner") {
+          if (res.status === 429) {
+            setC(Math.ceil(((data?.retryAfterMs as number | undefined) ?? 0) / 1000));
+          } else if (res.ok) {
+            const fallback = OWNER_REFRESH_COOLDOWN_MS;
+            const ms =
+              typeof data?.refreshCooldownRemainingMs === "number" ? data.refreshCooldownRemainingMs : fallback;
+            setC(Math.ceil(ms / 1000));
+            await reload();
+          } else {
+            setError(typeof data?.message === "string" ? data.message : t("errorRefresh", lang));
+          }
+          return;
+        }
+        if (res.status === 429) {
+          const ra = typeof data?.retryAfterMs === "number" ? data.retryAfterMs : 0;
+          setC(Math.ceil(ra / 1000));
+          const msg =
+            typeof data?.message === "string" ? data.message : t("invRefreshCooldownHint", lang);
+          setMyInvGuestMeta((prev) => ({
+            ...prev,
+            fetchError: msg,
+            cooldownActive: true,
+            nextRefreshAt:
+              typeof data?.nextRefreshAt === "string" ? data.nextRefreshAt : prev.nextRefreshAt,
+          }));
+          return;
+        }
+        if (res.ok) {
+          const fallback = USER_REFRESH_COOLDOWN_MS;
+          const ms =
+            typeof data?.refreshCooldownRemainingMs === "number" ? data.refreshCooldownRemainingMs : fallback;
+          setC(Math.ceil(ms / 1000));
+          await reload({ force: true });
+        } else {
+          setMyInvGuestMeta((prev) => ({
+            ...prev,
+            fetchError:
+              typeof data?.message === "string"
+                ? data.message
+                : typeof data?.error === "string"
+                  ? data.error
+                  : t("errorRefresh", lang),
+          }));
+        }
+      } finally {
+        setR(false);
+      }
+    },
+    [lang],
+  );
 
   // ------ selection (max MAX_TRADE_ITEMS_PER_SIDE per side) ------
   const toggle = useCallback((set: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
@@ -714,7 +950,9 @@ export default function TradePageClient({
     overpayPct < 0 || overpayPct > TRADE_MAX_OVERPAY_PERCENT
       ? "text-red-400"
       : "text-emerald-500";
-  const canSubmit = tradeSelectionReady && tradeBalance?.ok === true && !tradeModalBusy;
+  const myGuestInvPhase = useMemo(() => resolveGuestInvPhase(myInvGuestMeta), [myInvGuestMeta]);
+  const canSubmit =
+    tradeSelectionReady && tradeBalance?.ok === true && !tradeModalBusy && !myInvGuestMeta.cannotTrade;
 
   const tradeFilterCardClass =
     "min-w-0 rounded-xl border border-zinc-800/70 bg-zinc-950/85 px-2 py-2 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] sm:rounded-2xl sm:px-3 sm:py-2.5 lg:px-4 lg:py-3.5";
@@ -747,6 +985,13 @@ export default function TradePageClient({
     } else {
       requirementRows.push({ done: false, issue: true, text: t("tradeNoPricing", lang) });
     }
+  }
+  if (myInvGuestMeta.cannotTrade) {
+    requirementRows.push({
+      done: false,
+      issue: true,
+      text: t("invCannotTrade", lang),
+    });
   }
   const pendingRequirements = requirementRows.filter((r) => !r.done).length;
 
@@ -1135,6 +1380,79 @@ export default function TradePageClient({
         </div>
       );
     }
+    const filteredMy = filterMy(myItems, mySearch, mySort);
+    const onInvRefresh = () => doRefresh("my", setMyRefreshing, setMyCooldown, loadMyInventory);
+
+    let priorityBanner: ReactNode = null;
+    if (myGuestInvPhase === "steamBusy") {
+      priorityBanner = (
+        <div className="shrink-0 border-b border-amber-900/40 bg-amber-950/50 px-2.5 py-2 text-center text-[11px] leading-snug text-amber-200/95 sm:px-3 sm:text-xs">
+          {t("invSteamBusy", lang)}
+        </div>
+      );
+    } else if (myGuestInvPhase === "steamUnstable") {
+      priorityBanner = (
+        <div className="shrink-0 border-b border-amber-800/35 bg-amber-950/35 px-2.5 py-2 text-center text-[11px] leading-snug text-amber-200/90 sm:px-3 sm:text-xs">
+          {t("invSteamUnstable", lang)}
+        </div>
+      );
+    } else if (myGuestInvPhase === "isPrivate") {
+      priorityBanner = (
+        <div className="shrink-0 space-y-2 border-b border-violet-900/40 bg-violet-950/40 px-2.5 py-2.5 sm:px-3">
+          <p className="text-center text-[11px] leading-snug text-violet-100/90 sm:text-xs">
+            {t("invInventoryPrivate", lang)}
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <a
+              href="https://steamcommunity.com/my/edit/settings"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg bg-violet-600 px-3 py-1.5 text-[11px] font-semibold text-white hover:bg-violet-500 sm:text-xs"
+            >
+              {t("invOpenSteamPrivacy", lang)}
+            </a>
+            {!privateInventoryRetryUsed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPrivateInventoryRetryUsed(true);
+                  void loadMyInventory({ force: true });
+                }}
+                className="rounded-lg border border-zinc-600 bg-zinc-900/80 px-3 py-1.5 text-[11px] text-zinc-200 hover:bg-zinc-800 sm:text-xs"
+              >
+                {t("invRetryInventoryOnce", lang)}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      );
+    } else if (myGuestInvPhase === "cannotTrade") {
+      priorityBanner = (
+        <div className="shrink-0 border-b border-red-900/50 bg-red-950/45 px-2.5 py-2 text-center text-[11px] leading-snug text-red-100/95 sm:px-3 sm:text-xs">
+          {t("invCannotTrade", lang)}
+        </div>
+      );
+    } else if (myGuestInvPhase === "cooldownActive") {
+      priorityBanner = (
+        <div className="shrink-0 border-b border-zinc-700/60 bg-zinc-900/80 px-2.5 py-2 text-center text-[11px] leading-snug text-zinc-300 sm:px-3 sm:text-xs">
+          <div>{myInvGuestMeta.fetchError ?? t("invCooldownActive", lang)}</div>
+          <div className="mt-1 font-semibold text-amber-400/90 tabular-nums">
+            {formatRefreshCooldown(myCooldown, lang)}
+          </div>
+        </div>
+      );
+    }
+
+    const secondaryNotice: ReactNode =
+      myGuestInvPhase === "normal" && myInvGuestMeta.fetchError ? (
+        <div className="shrink-0 border-b border-zinc-700/50 bg-zinc-900/70 px-2.5 py-1.5 text-center text-[11px] leading-snug text-zinc-300 sm:text-xs">
+          {myInvGuestMeta.fetchError}
+        </div>
+      ) : null;
+
+    const showEmptyLabel =
+      !myInventoryLoading && filteredMy.length === 0 && !myInvGuestMeta.steamUnstable;
+
     return (
       <div className="flex w-full min-h-0 flex-1 flex-col lg:min-h-0 lg:flex-1">
         <PanelHeader
@@ -1143,26 +1461,55 @@ export default function TradePageClient({
           sort={mySort}
           onSort={setMySort}
           prefix="my"
-          onRefresh={() => doRefresh("my", setMyRefreshing, setMyCooldown, loadMyInventory)}
+          onRefresh={onInvRefresh}
           refreshing={myRefreshing}
           cooldown={myCooldown}
           tradeUrlAction={() => setEditingTradeUrl(true)}
           lang={lang}
           controlsDisabled={myInventoryLoading}
         />
-        <div ref={invScrollRef} className={scrollCls}>
+        {priorityBanner}
+        {secondaryNotice}
+        <div ref={invScrollRef} className={`${scrollCls} relative min-h-0 flex-1`}>
           {myInventoryLoading ? (
             <ItemGridSkeleton lang={lang} />
+          ) : showEmptyLabel ? (
+            <div className="flex flex-col items-center justify-center py-12 text-sm text-zinc-500">
+              {t("invInventoryEmpty", lang)}
+            </div>
           ) : (
-            <ItemGrid
-              items={filterMy(myItems, mySearch, mySort)}
-              side="guest"
-              selected={selectedMy}
-              onToggle={(id) => toggle(setSelectedMy, id)}
-              showAssetId={isAdmin}
-              fmt={fmt}
-              lang={lang}
-            />
+            <>
+              <div
+                className={
+                  myInvGuestMeta.cannotTrade ? "pointer-events-none select-none opacity-[0.38]" : undefined
+                }
+              >
+                <ItemGrid
+                  items={filteredMy}
+                  side="guest"
+                  selected={selectedMy}
+                  onToggle={(id) => toggle(setSelectedMy, id)}
+                  showAssetId={isAdmin}
+                  fmt={fmt}
+                  lang={lang}
+                />
+              </div>
+              {myInvGuestMeta.needsRefreshWarning ? (
+                <div className="pointer-events-auto absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/50 px-4 backdrop-blur-[1px]">
+                  <p className="max-w-[16rem] text-center text-sm font-medium text-zinc-100">
+                    {t("invStaleDataTitle", lang)}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => void onInvRefresh()}
+                    disabled={myCooldown > 0 || myRefreshing}
+                    className="rounded-lg bg-amber-600 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {t("invStaleRefreshCta", lang)}
+                  </button>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </div>
@@ -1185,7 +1532,7 @@ export default function TradePageClient({
           sort={ownerSort}
           onSort={setOwnerSort}
           prefix="owner"
-          onRefresh={() => doRefresh("owner", setOwnerRefreshing, setOwnerCooldown, loadOwner)}
+          onRefresh={() => doRefresh("owner", setOwnerRefreshing, setOwnerCooldown, async () => loadOwner())}
           refreshing={ownerRefreshing}
           cooldown={ownerCooldown}
           lang={lang}

@@ -18,6 +18,8 @@ interface CacheEntry {
 const SNAPSHOT_PREFIX = "csmoney:inv:snapshot:";
 const RL_OWNER_PREFIX = "csmoney:inv:rl:owner:";
 const RL_USER_PREFIX = "csmoney:inv:rl:user:";
+/** Extra cooldown after Steam “unstable” (browser double-fail); shorter than user refresh window. */
+const RL_USER_SHORT_PREFIX = "csmoney:inv:rl:userShort:";
 
 /** 7d TTL on snapshot keys (owner entries are refreshed by job; guests expire logically at 3m). */
 const SNAPSHOT_MAX_TTL_SEC = 7 * 24 * 3600;
@@ -25,8 +27,13 @@ const SNAPSHOT_MAX_TTL_SEC = 7 * 24 * 3600;
 const memoryCache = new Map<string, CacheEntry>();
 const lastOwnerRefresh = new Map<string, number>();
 const lastUserRefresh = new Map<string, number>();
+/** Memory fallback: epoch ms when short guest cooldown ends. */
+const shortGuestCooldownUntil = new Map<string, number>();
 
-const DEFAULT_TTL_MS = 3 * 60 * 1000; // 3 minutes (guest / strict)
+/** Guest inventory snapshot kept for UI / trading until replaced (max age cap). */
+export const GUEST_SNAPSHOT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+const USER_SHORT_GUEST_COOLDOWN_MS = 15 * 60 * 1000;
 
 /** Owner store: after this age, snapshot is "stale" (triggers background revalidation in API). */
 export const OWNER_FRESH_TTL_MS = 3 * 60 * 1000;
@@ -136,18 +143,24 @@ async function removeSnapshot(steamId: string, reason: string): Promise<void> {
 }
 
 export async function getCached(steamId: string): Promise<NormalizedItem[] | null> {
+  const entry = await getGuestSnapshotEntry(steamId);
+  return entry?.items ?? null;
+}
+
+/** Long-lived guest snapshot (same Redis key as before; no 3-minute eviction). */
+export async function getGuestSnapshotEntry(steamId: string): Promise<CacheEntry | null> {
   const entry = await readSnapshot(steamId, "guest-ttl");
   if (!entry) return null;
   const ageMs = Date.now() - entry.fetchedAt;
-  if (ageMs > DEFAULT_TTL_MS) {
+  if (ageMs > GUEST_SNAPSHOT_MAX_AGE_MS) {
     invCacheLog(
-      `guest-ttl EXPIRED steamId=${steamId} key=${snapshotKey(steamId)} ageMs=${ageMs} ttlMs=${DEFAULT_TTL_MS}`,
+      `guest-snapshot MAX_AGE steamId=${steamId} key=${snapshotKey(steamId)} ageMs=${ageMs} maxMs=${GUEST_SNAPSHOT_MAX_AGE_MS}`,
     );
-    await removeSnapshot(steamId, "guest-ttl-expired");
+    await removeSnapshot(steamId, "guest-snapshot-max-age");
     return null;
   }
-  invCacheLog(`guest-ttl SERVE steamId=${steamId} ageMs=${ageMs}`);
-  return entry.items;
+  invCacheLog(`guest-snapshot SERVE steamId=${steamId} ageMs=${ageMs}`);
+  return entry;
 }
 
 /**
@@ -218,6 +231,40 @@ export async function refreshCooldownRemainingUser(steamId: string): Promise<num
     }
   }
   return remainingCooldown(lastUserRefresh, steamId, USER_REFRESH_COOLDOWN_MS);
+}
+
+function remainingShortGuest(steamId: string): number {
+  const until = shortGuestCooldownUntil.get(steamId);
+  if (!until) return 0;
+  return Math.max(0, until - Date.now());
+}
+
+/** Max of normal user refresh cooldown (2h) and short “Steam unstable” window (15m). */
+export async function guestSteamFetchCooldownRemainingMs(steamId: string): Promise<number> {
+  const base = await refreshCooldownRemainingUser(steamId);
+  const r = getRedis();
+  if (r) {
+    try {
+      const pttl = await r.pttl(`${RL_USER_SHORT_PREFIX}${steamId}`);
+      if (pttl > 0) return Math.max(base, pttl);
+      return base;
+    } catch (e) {
+      console.warn("[inventory-cache] redis PTTL userShort failed", e);
+    }
+  }
+  return Math.max(base, remainingShortGuest(steamId));
+}
+
+export async function markUserShortGuestCooldown(steamId: string, ms: number = USER_SHORT_GUEST_COOLDOWN_MS) {
+  const r = getRedis();
+  if (r) {
+    try {
+      await r.set(`${RL_USER_SHORT_PREFIX}${steamId}`, "1", "PX", ms);
+    } catch (e) {
+      console.warn("[inventory-cache] redis SET userShort rl failed", e);
+    }
+  }
+  shortGuestCooldownUntil.set(steamId, Date.now() + ms);
 }
 
 export async function markOwnerRefreshed(steamId: string) {

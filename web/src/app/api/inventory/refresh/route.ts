@@ -11,6 +11,7 @@ import {
   resolveGuestInventoryTargetSteamId,
   warnIfGuestSteamIdEqualsOwner,
 } from "@/lib/guest-inventory-target";
+import { loadGuestInventoryForUser } from "@/lib/guest-inventory-load-service";
 import {
   invalidateCache,
   markOwnerRefreshed,
@@ -19,9 +20,10 @@ import {
   refreshCooldownRemainingUser,
   setCache,
 } from "@/lib/inventory-cache";
+import { markInventoryRefreshPost, refreshPostMinRemainingMs } from "@/lib/inventory-refresh-endpoint-min";
 import { formatRefreshCooldownRu, OWNER_REFRESH_COOLDOWN_MS, USER_REFRESH_COOLDOWN_MS } from "@/lib/inventory-refresh-limits";
 import { filterJunkFromOwnerSteamItems } from "@/lib/owner-inventory-filters";
-import { fetchGuestInventory, fetchOwnerInventory } from "@/lib/steam-inventory";
+import { fetchOwnerInventory } from "@/lib/steam-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -80,10 +82,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const cooldown = await refreshCooldownRemainingUser(user.steamId);
-  if (cooldown > 0) {
-    return NextResponse.json(rateLimitBody(cooldown), { status: 429 });
+  const minPostMs = refreshPostMinRemainingMs(user.steamId);
+  const cooldownUser = await refreshCooldownRemainingUser(user.steamId);
+  const blockMs = Math.max(minPostMs, cooldownUser);
+  if (blockMs > 0) {
+    return NextResponse.json(
+      {
+        ...rateLimitBody(blockMs),
+        cooldownActive: true,
+        nextRefreshAt: new Date(Date.now() + blockMs).toISOString(),
+      },
+      { status: 429 },
+    );
   }
+  markInventoryRefreshPost(user.steamId);
 
   const guestTargetSteamId = resolveGuestInventoryTargetSteamId(user);
   const ownerSteamId = process.env.OWNER_STEAM_ID ?? "";
@@ -95,16 +107,23 @@ export async function POST(request: NextRequest) {
     await invalidateCache(user.steamId);
     await markUserRefreshed(user.steamId);
 
-    const result = await fetchGuestInventory(user.tradeUrl!);
-    if (!result.ok) {
-      return NextResponse.json({ error: result.error }, { status: 502 });
+    const loaded = await loadGuestInventoryForUser({
+      userSteamId: user.steamId,
+      tradeUrl: user.tradeUrl!,
+      guestTargetSteamId,
+      mode: "force_refresh",
+    });
+    if (!loaded.ok) {
+      return NextResponse.json({ error: loaded.error, ...loaded.flags }, { status: 502 });
     }
-    await setCache(guestTargetSteamId, result.items);
     return NextResponse.json({
       ok: true,
-      count: result.items.length,
+      count: loaded.items.length,
       refreshCooldownRemainingMs: await refreshCooldownRemainingUser(user.steamId),
       refreshCooldownTotalMs: USER_REFRESH_COOLDOWN_MS,
+      steamUnstable: loaded.flags.steamUnstable ?? false,
+      isPrivate: loaded.flags.isPrivate ?? false,
+      needsRefreshWarning: loaded.flags.needsRefreshWarning ?? false,
     });
   }
 
