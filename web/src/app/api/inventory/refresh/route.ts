@@ -23,7 +23,7 @@ import {
 import { markInventoryRefreshPost, refreshPostMinRemainingMs } from "@/lib/inventory-refresh-endpoint-min";
 import { formatRefreshCooldownRu, OWNER_REFRESH_COOLDOWN_MS, USER_REFRESH_COOLDOWN_MS } from "@/lib/inventory-refresh-limits";
 import { filterJunkFromOwnerSteamItems } from "@/lib/owner-inventory-filters";
-import { fetchOwnerInventory } from "@/lib/steam-inventory";
+import { fetchOwnerInventory, normalizeSteamId64ForCache } from "@/lib/steam-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +99,9 @@ export async function POST(request: NextRequest) {
 
   const guestTargetSteamId = resolveGuestInventoryTargetSteamId(user);
   const ownerSteamId = process.env.OWNER_STEAM_ID ?? "";
-  const isPlatformOwner = ownerSteamId !== "" && user.steamId === ownerSteamId;
+  const ownerNorm = ownerSteamId.trim() ? normalizeSteamId64ForCache(ownerSteamId) : "";
+  const isPlatformOwner =
+    ownerNorm !== "" && normalizeSteamId64ForCache(user.steamId) === ownerNorm;
 
   if (guestTargetSteamId) {
     warnIfGuestSteamIdEqualsOwner("inventory/refresh", guestTargetSteamId);

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { normalizeSteamId64ForCache } from "@/lib/steam-inventory";
+
 /** Min interval between GET /api/inventory/me guest hits that may trigger Steam (soft cap; cache served when faster). */
 export const INVENTORY_ME_SOFT_INTERVAL_MS = 4000;
 
@@ -12,10 +14,11 @@ function map(): Map<string, number> {
 
 /** Milliseconds until another “fast” guest /me is allowed without forcing cache-only. */
 export function inventoryMeGuestSoftRemainingMs(steamId: string): number {
-  const last = map().get(steamId) ?? 0;
+  const id = normalizeSteamId64ForCache(steamId);
+  const last = map().get(id) ?? 0;
   return Math.max(0, INVENTORY_ME_SOFT_INTERVAL_MS - (Date.now() - last));
 }
 
 export function markInventoryMeGuestGet(steamId: string): void {
-  map().set(steamId, Date.now());
+  map().set(normalizeSteamId64ForCache(steamId), Date.now());
 }

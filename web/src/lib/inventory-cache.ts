@@ -7,6 +7,7 @@
  */
 
 import type { NormalizedItem } from "./steam-inventory";
+import { normalizeSteamId64ForCache } from "./steam-inventory";
 import { OWNER_REFRESH_COOLDOWN_MS, USER_REFRESH_COOLDOWN_MS } from "./inventory-refresh-limits";
 import { getRedis } from "./redis-client";
 
@@ -55,7 +56,8 @@ export function invCacheLog(message: string): void {
   console.log(`[inv-cache] ${message}`);
 }
 
-async function readSnapshot(steamId: string, op: "guest-ttl" | "owner-swr"): Promise<CacheEntry | null> {
+/** Read snapshot at this exact key string (already canonical or legacy). */
+async function readSnapshotAtKey(steamId: string, op: "guest-ttl" | "owner-swr"): Promise<CacheEntry | null> {
   const key = snapshotKey(steamId);
   const r = getRedis();
   if (r) {
@@ -106,7 +108,24 @@ async function readSnapshot(steamId: string, op: "guest-ttl" | "owner-swr"): Pro
   return mem;
 }
 
-async function writeSnapshot(steamId: string, entry: CacheEntry): Promise<void> {
+async function readSnapshot(steamId: string, op: "guest-ttl" | "owner-swr"): Promise<CacheEntry | null> {
+  const norm = normalizeSteamId64ForCache(steamId);
+  const trimmed = steamId.trim();
+  let entry = await readSnapshotAtKey(norm, op);
+  if (!entry && norm !== trimmed) {
+    entry = await readSnapshotAtKey(trimmed, op);
+    if (entry) {
+      invCacheLog(
+        `GET MIGRATE op=${op} legacyKey=${trimmed} canonicalKey=${norm} items=${entry.items.length}`,
+      );
+      await writeSnapshotAtKey(norm, entry);
+      await removeSnapshotAtKey(trimmed, "legacy-alias-after-migrate");
+    }
+  }
+  return entry;
+}
+
+async function writeSnapshotAtKey(steamId: string, entry: CacheEntry): Promise<void> {
   const key = snapshotKey(steamId);
   const r = getRedis();
   if (r) {
@@ -126,7 +145,12 @@ async function writeSnapshot(steamId: string, entry: CacheEntry): Promise<void> 
   invCacheLog(`SET OK steamId=${steamId} key=${key} store=memory items=${entry.items.length}`);
 }
 
-async function removeSnapshot(steamId: string, reason: string): Promise<void> {
+async function writeSnapshot(steamId: string, entry: CacheEntry): Promise<void> {
+  const norm = normalizeSteamId64ForCache(steamId);
+  await writeSnapshotAtKey(norm, entry);
+}
+
+async function removeSnapshotAtKey(steamId: string, reason: string): Promise<void> {
   const key = snapshotKey(steamId);
   const r = getRedis();
   if (r) {
@@ -140,6 +164,15 @@ async function removeSnapshot(steamId: string, reason: string): Promise<void> {
   }
   memoryCache.delete(steamId);
   if (!r) invCacheLog(`DEL steamId=${steamId} key=${key} store=memory reason=${reason}`);
+}
+
+async function removeSnapshot(steamId: string, reason: string): Promise<void> {
+  const norm = normalizeSteamId64ForCache(steamId);
+  const trimmed = steamId.trim();
+  await removeSnapshotAtKey(norm, reason);
+  if (norm !== trimmed) {
+    await removeSnapshotAtKey(trimmed, `${reason}-raw-trim`);
+  }
 }
 
 export async function getCached(steamId: string): Promise<NormalizedItem[] | null> {
@@ -205,88 +238,95 @@ function remainingCooldown(
 
 /** Owner/store inventory refresh (key = owner Steam ID). */
 export async function refreshCooldownRemainingOwner(steamId: string): Promise<number> {
+  const id = normalizeSteamId64ForCache(steamId);
   const r = getRedis();
   if (r) {
     try {
-      const pttl = await r.pttl(`${RL_OWNER_PREFIX}${steamId}`);
+      const pttl = await r.pttl(`${RL_OWNER_PREFIX}${id}`);
       if (pttl > 0) return pttl;
       return 0;
     } catch (e) {
       console.warn("[inventory-cache] redis PTTL owner failed", e);
     }
   }
-  return remainingCooldown(lastOwnerRefresh, steamId, OWNER_REFRESH_COOLDOWN_MS);
+  return remainingCooldown(lastOwnerRefresh, id, OWNER_REFRESH_COOLDOWN_MS);
 }
 
 /** Logged-in user's "my inventory" refresh (key = user's Steam ID). */
 export async function refreshCooldownRemainingUser(steamId: string): Promise<number> {
+  const id = normalizeSteamId64ForCache(steamId);
   const r = getRedis();
   if (r) {
     try {
-      const pttl = await r.pttl(`${RL_USER_PREFIX}${steamId}`);
+      const pttl = await r.pttl(`${RL_USER_PREFIX}${id}`);
       if (pttl > 0) return pttl;
       return 0;
     } catch (e) {
       console.warn("[inventory-cache] redis PTTL user failed", e);
     }
   }
-  return remainingCooldown(lastUserRefresh, steamId, USER_REFRESH_COOLDOWN_MS);
+  return remainingCooldown(lastUserRefresh, id, USER_REFRESH_COOLDOWN_MS);
 }
 
 function remainingShortGuest(steamId: string): number {
-  const until = shortGuestCooldownUntil.get(steamId);
+  const id = normalizeSteamId64ForCache(steamId);
+  const until = shortGuestCooldownUntil.get(id);
   if (!until) return 0;
   return Math.max(0, until - Date.now());
 }
 
 /** Max of normal user refresh cooldown (2h) and short “Steam unstable” window (15m). */
 export async function guestSteamFetchCooldownRemainingMs(steamId: string): Promise<number> {
-  const base = await refreshCooldownRemainingUser(steamId);
+  const id = normalizeSteamId64ForCache(steamId);
+  const base = await refreshCooldownRemainingUser(id);
   const r = getRedis();
   if (r) {
     try {
-      const pttl = await r.pttl(`${RL_USER_SHORT_PREFIX}${steamId}`);
+      const pttl = await r.pttl(`${RL_USER_SHORT_PREFIX}${id}`);
       if (pttl > 0) return Math.max(base, pttl);
       return base;
     } catch (e) {
       console.warn("[inventory-cache] redis PTTL userShort failed", e);
     }
   }
-  return Math.max(base, remainingShortGuest(steamId));
+  return Math.max(base, remainingShortGuest(id));
 }
 
 export async function markUserShortGuestCooldown(steamId: string, ms: number = USER_SHORT_GUEST_COOLDOWN_MS) {
+  const id = normalizeSteamId64ForCache(steamId);
   const r = getRedis();
   if (r) {
     try {
-      await r.set(`${RL_USER_SHORT_PREFIX}${steamId}`, "1", "PX", ms);
+      await r.set(`${RL_USER_SHORT_PREFIX}${id}`, "1", "PX", ms);
     } catch (e) {
       console.warn("[inventory-cache] redis SET userShort rl failed", e);
     }
   }
-  shortGuestCooldownUntil.set(steamId, Date.now() + ms);
+  shortGuestCooldownUntil.set(id, Date.now() + ms);
 }
 
 export async function markOwnerRefreshed(steamId: string) {
+  const id = normalizeSteamId64ForCache(steamId);
   const r = getRedis();
   if (r) {
     try {
-      await r.set(`${RL_OWNER_PREFIX}${steamId}`, "1", "PX", OWNER_REFRESH_COOLDOWN_MS);
+      await r.set(`${RL_OWNER_PREFIX}${id}`, "1", "PX", OWNER_REFRESH_COOLDOWN_MS);
     } catch (e) {
       console.warn("[inventory-cache] redis SET owner rl failed", e);
     }
   }
-  lastOwnerRefresh.set(steamId, Date.now());
+  lastOwnerRefresh.set(id, Date.now());
 }
 
 export async function markUserRefreshed(steamId: string) {
+  const id = normalizeSteamId64ForCache(steamId);
   const r = getRedis();
   if (r) {
     try {
-      await r.set(`${RL_USER_PREFIX}${steamId}`, "1", "PX", USER_REFRESH_COOLDOWN_MS);
+      await r.set(`${RL_USER_PREFIX}${id}`, "1", "PX", USER_REFRESH_COOLDOWN_MS);
     } catch (e) {
       console.warn("[inventory-cache] redis SET user rl failed", e);
     }
   }
-  lastUserRefresh.set(steamId, Date.now());
+  lastUserRefresh.set(id, Date.now());
 }

@@ -97,6 +97,24 @@ export function parseTradeUrl(url: string): { partner: string; token: string } |
 
 const STEAM64_OFFSET = BigInt("76561197960265728");
 
+/**
+ * Единый SteamID64 для кэша и сравнений: если в БД/сессии лежит account id (меньше оффсета), конвертируем.
+ * Trade URL `partner` → steam64 через trySteamId64FromPartner уже даёт 64-bit строку.
+ */
+export function normalizeSteamId64ForCache(raw: string): string {
+  const t = raw.trim();
+  if (!/^\d+$/.test(t)) return t;
+  try {
+    const n = BigInt(t);
+    if (n < STEAM64_OFFSET) {
+      return (n + STEAM64_OFFSET).toString();
+    }
+    return t;
+  } catch {
+    return t;
+  }
+}
+
 export function steamId64FromPartner(partner: string): string {
   return (BigInt(partner) + STEAM64_OFFSET).toString();
 }

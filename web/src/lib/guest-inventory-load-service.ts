@@ -12,8 +12,9 @@ import {
 import {
   fetchGuestInventoryBySteamId64,
   normalizeInventory,
+  normalizeSteamId64ForCache,
   parseTradeUrl,
-  steamId64FromPartner,
+  trySteamId64FromPartner,
 } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 
@@ -213,7 +214,26 @@ async function runGuestInventoryLoad(
 ): Promise<GuestInventoryLoadResult> {
   const { userSteamId, tradeUrl, guestTargetSteamId, mode } = args;
 
-  const snap = await getGuestSnapshotEntry(guestTargetSteamId);
+  const parsedEarly = parseTradeUrl(tradeUrl.trim());
+  if (!parsedEarly) {
+    return { ok: false, error: "invalid_trade_url", flags };
+  }
+  const urlDerived64 = trySteamId64FromPartner(parsedEarly.partner);
+  if (!urlDerived64) {
+    return { ok: false, error: "invalid_trade_url", flags };
+  }
+  /** Ключ снимка инвентаря = SteamID64 из trade URL (источник истины), нормализованный. */
+  const snapshotSteamId = normalizeSteamId64ForCache(urlDerived64);
+  const passedNorm = normalizeSteamId64ForCache(guestTargetSteamId);
+  if (snapshotSteamId !== passedNorm) {
+    console.warn("[guest-inv-load] snapshotSteamId from trade URL !== guestTargetSteamId from caller", {
+      sessionSteamIdNorm: normalizeSteamId64ForCache(userSteamId),
+      guestTargetSteamIdPassed: guestTargetSteamId,
+      snapshotSteamId,
+    });
+  }
+
+  const snap = await getGuestSnapshotEntry(snapshotSteamId);
   if (snap) {
     const age = Date.now() - snap.fetchedAt;
     if (age > STALE_WARNING_MS) flags.needsRefreshWarning = true;
@@ -231,11 +251,7 @@ async function runGuestInventoryLoad(
     return { ok: false, error: "cooldown_active", flags };
   }
 
-  const parsed = parseTradeUrl(tradeUrl);
-  if (!parsed) {
-    return { ok: false, error: "invalid_trade_url", flags };
-  }
-  const steamId64 = steamId64FromPartner(parsed.partner);
+  const steamId64 = snapshotSteamId;
 
   let items: NormalizedItem[] | null = null;
   let mark2hAfterSuccess = false;
@@ -371,7 +387,7 @@ async function runGuestInventoryLoad(
     return { ok: false, error: "guest_inventory_unavailable", flags };
   }
 
-  await setCache(guestTargetSteamId, items);
+  await setCache(snapshotSteamId, items);
 
   if (!skipUserRefreshMark && mark2hAfterSuccess) {
     await markUserRefreshed(userSteamId);

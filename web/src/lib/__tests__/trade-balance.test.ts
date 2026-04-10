@@ -49,19 +49,21 @@ describe("checkTradeBalance", () => {
   it("returns overpay_too_low when guest < owner", () => {
     const result = checkTradeBalance(4900, 5000);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe("overpay_too_low");
-      expect(result.shortfallCents).toBe(100);
-    }
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "overpay_too_low",
+      shortfallCents: 100,
+    });
   });
 
   it("returns overpay_too_high when guest > max", () => {
     const result = checkTradeBalance(10600, 10000);
     expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toBe("overpay_too_high");
-      expect(result.excessCents).toBe(100);
-    }
+    expect(result).toMatchObject({
+      ok: false,
+      reason: "overpay_too_high",
+      excessCents: 100,
+    });
   });
 
   it("returns no_pricing when guest is 0", () => {

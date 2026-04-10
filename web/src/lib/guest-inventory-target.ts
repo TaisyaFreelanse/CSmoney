@@ -1,6 +1,6 @@
 import type { User } from "@prisma/client";
 
-import { parseTradeUrl, trySteamId64FromPartner } from "@/lib/steam-inventory";
+import { normalizeSteamId64ForCache, parseTradeUrl, trySteamId64FromPartner } from "@/lib/steam-inventory";
 
 export type GuestInventoryActor = Pick<User, "steamId" | "tradeUrl">;
 
@@ -16,7 +16,8 @@ export const TRADE_URL_SHOP_OWNER_MESSAGE =
 
 function normalizedOwnerSteamId(): string | null {
   const o = process.env.OWNER_STEAM_ID?.trim();
-  return o && o.length > 0 ? o : null;
+  if (!o || o.length === 0) return null;
+  return normalizeSteamId64ForCache(o);
 }
 
 /**
@@ -27,8 +28,9 @@ export function resolveGuestTradeUrl(user: GuestInventoryActor): GuestTradeUrlRe
   if (!user.tradeUrl?.trim()) return { kind: "none" };
   const parsed = parseTradeUrl(user.tradeUrl.trim());
   if (!parsed) return { kind: "invalid" };
-  const derivedSteamId = trySteamId64FromPartner(parsed.partner);
-  if (!derivedSteamId) return { kind: "invalid" };
+  const derivedRaw = trySteamId64FromPartner(parsed.partner);
+  if (!derivedRaw) return { kind: "invalid" };
+  const derivedSteamId = normalizeSteamId64ForCache(derivedRaw);
   const owner = normalizedOwnerSteamId();
   if (owner && derivedSteamId === owner) return { kind: "shop_owner" };
   return { kind: "ok", derivedSteamId };

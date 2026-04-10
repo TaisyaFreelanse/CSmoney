@@ -16,6 +16,7 @@ import {
   getCached,
   getGuestSnapshotEntry,
   guestSteamFetchCooldownRemainingMs,
+  invCacheLog,
   refreshCooldownRemainingUser,
   setCache,
 } from "@/lib/inventory-cache";
@@ -23,7 +24,7 @@ import {
   inventoryMeGuestSoftRemainingMs,
   markInventoryMeGuestGet,
 } from "@/lib/inventory-me-soft-rate-limit";
-import { fetchOwnerInventory } from "@/lib/steam-inventory";
+import { fetchOwnerInventory, normalizeSteamId64ForCache } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 import { resolvePricesBatch } from "@/lib/pricempire";
 
@@ -38,10 +39,15 @@ export async function GET() {
   }
 
   const ownerSteamId = process.env.OWNER_STEAM_ID ?? "";
-  const isPlatformOwner = ownerSteamId !== "" && user.steamId === ownerSteamId;
+  const ownerNorm = ownerSteamId.trim() ? normalizeSteamId64ForCache(ownerSteamId) : "";
+  const isPlatformOwner =
+    ownerNorm !== "" && normalizeSteamId64ForCache(user.steamId) === ownerNorm;
   const guestTargetSteamId = resolveGuestInventoryTargetSteamId(user);
 
   if (guestTargetSteamId) {
+    invCacheLog(
+      `guest/me sessionSteamId=${user.steamId} sessionNorm=${normalizeSteamId64ForCache(user.steamId)} snapshotSteamId=${guestTargetSteamId} samePerson=${normalizeSteamId64ForCache(user.steamId) === guestTargetSteamId}`,
+    );
     warnIfGuestSteamIdEqualsOwner("inventory/me", guestTargetSteamId);
 
     const softRem = inventoryMeGuestSoftRemainingMs(user.steamId);
