@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Puppeteer Chrome for Testing (downloaded at build; do not commit)
+/.puppeteer-chrome/
+
 # dependencies
 /node_modules
 /.pnp

@@ -24,6 +24,7 @@ services:
     region: frankfurt
     branch: main
     rootDir: web
+    # next build runs scripts/install-chrome-for-puppeteer.mjs (Chrome into web/.puppeteer-chrome)
     buildCommand: npm ci && npm run build
     preDeployCommand: npm run render:release
     startCommand: npm start

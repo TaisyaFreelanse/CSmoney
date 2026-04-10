@@ -7,6 +7,12 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 patchDatabaseUrlForRenderPostgres();
 
+/** Chrome from build lives under web/.puppeteer-chrome so it ships with the slug (not ~/.cache). */
+const puppeteerCache = path.resolve(root, ".puppeteer-chrome");
+if (!process.env.PUPPETEER_CACHE_DIR?.trim()) {
+  process.env.PUPPETEER_CACHE_DIR = puppeteerCache;
+}
+
 function runNpx(args) {
   const r = spawnSync("npx", args, {
     stdio: "inherit",

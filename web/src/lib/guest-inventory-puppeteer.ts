@@ -1,6 +1,8 @@
 import "server-only";
 
-import type { Browser, Page } from "puppeteer";
+import path from "node:path";
+
+import type { Browser, Page, PuppeteerNode } from "puppeteer";
 
 import { parseTradeUrl, steamId64FromPartner } from "@/lib/steam-inventory";
 
@@ -36,6 +38,12 @@ function cookiesEnabled(): boolean {
   if (!v) return false;
   if (process.env.STEAM_INVENTORY_BROWSER === "0") return false;
   return true;
+}
+
+/** Same path as scripts/install-chrome-for-puppeteer.mjs + render-start.mjs (Render slug includes web/). */
+function ensurePuppeteerCacheDir(): void {
+  if (process.env.PUPPETEER_CACHE_DIR?.trim()) return;
+  process.env.PUPPETEER_CACHE_DIR = path.resolve(process.cwd(), ".puppeteer-chrome");
 }
 
 function parseCookieHeader(header: string): { name: string; value: string }[] {
@@ -157,12 +165,30 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
 
   const steamId64 = steamId64FromPartner(parsed.partner);
 
-  let puppeteer: typeof import("puppeteer") | null = null;
+  let puppeteerMod: typeof import("puppeteer") | null = null;
   try {
-    puppeteer = await import("puppeteer");
+    puppeteerMod = await import("puppeteer");
   } catch (e) {
     console.warn(LOG, "puppeteer import failed", e);
     return { ok: false, reason: "launch_failed", detail: "puppeteer_not_installed" };
+  }
+
+  ensurePuppeteerCacheDir();
+  const modNs = puppeteerMod as unknown as { default?: PuppeteerNode };
+  const pp: PuppeteerNode = modNs.default ?? (puppeteerMod as unknown as PuppeteerNode);
+
+  let executablePath = process.env.PUPPETEER_EXECUTABLE_PATH?.trim();
+  if (!executablePath && typeof pp.executablePath === "function") {
+    try {
+      executablePath = pp.executablePath();
+    } catch (e) {
+      console.warn(LOG, "executablePath() failed (run npm run build or npm run puppeteer:install)", e);
+    }
+  }
+  if (executablePath) {
+    console.log(LOG, "launch chrome", { executablePath, cacheDir: process.env.PUPPETEER_CACHE_DIR });
+  } else {
+    console.warn(LOG, "launch without explicit executablePath; set PUPPETEER_EXECUTABLE_PATH if launch fails");
   }
 
   const cookieHeader = process.env.STEAM_COMMUNITY_COOKIES!.trim();
@@ -190,8 +216,9 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       return { ok: false, reason: "timeout", detail: "max_browser_time" };
     }
 
-    browser = await puppeteer.launch({
+    browser = await pp.launch({
       headless: true,
+      ...(executablePath ? { executablePath } : {}),
       args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
     const page = await browser.newPage();
