@@ -180,9 +180,15 @@ export function queueTelegramNewTrade(
 
 export function queueTelegramNewUser(user: Pick<User, "steamId" | "displayName">): void {
   void tryNotifyTelegramDeduped(`user:new:${user.steamId}`, TELEGRAM_CHAT_IDS.user(), () => {
-    const who = escapeHtml(user.displayName ?? user.steamId);
-    const steam = escapeHtml(user.steamId);
-    const text = ["<b>📥 New User</b>", "", `<b>User:</b> ${who} <code>${steam}</code>`].join("\n");
+    const steamId = user.steamId.trim();
+    const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
+    const username = user.displayName?.trim() || "Unknown";
+    const text = [
+      "<b>📥 New User</b>",
+      "",
+      `<b>User:</b> <a href="${escapeHtml(profileUrl)}">${escapeHtml(username)}</a>`,
+      `<b>SteamID:</b> <code>${escapeHtml(steamId)}</code>`,
+    ].join("\n");
     return { text };
   });
 }
