@@ -191,12 +191,17 @@ export async function loadGuestInventoryForUser(args: {
   tradeUrl: string;
   guestTargetSteamId: string;
   mode: "get" | "force_refresh" | "trade_validate";
+  /** Админ с чужой trade URL: не режем загрузку кулдауном, привязанным к session SteamID. */
+  bypassGuestFetchCooldown?: boolean;
 }): Promise<GuestInventoryLoadResult> {
-  const { userSteamId, tradeUrl, guestTargetSteamId, mode } = args;
+  const { userSteamId, tradeUrl, guestTargetSteamId, mode, bypassGuestFetchCooldown } = args;
   const flags: GuestInventoryLoadFlags = {};
 
   try {
-    return await runGuestInventoryLoad({ userSteamId, tradeUrl, guestTargetSteamId, mode }, flags);
+    return await runGuestInventoryLoad(
+      { userSteamId, tradeUrl, guestTargetSteamId, mode, bypassGuestFetchCooldown },
+      flags,
+    );
   } catch (e) {
     console.error("[guest-inv-load] unhandled", e);
     return { ok: false, error: "guest_inventory_unavailable", flags };
@@ -209,10 +214,11 @@ async function runGuestInventoryLoad(
     tradeUrl: string;
     guestTargetSteamId: string;
     mode: "get" | "force_refresh" | "trade_validate";
+    bypassGuestFetchCooldown?: boolean;
   },
   flags: GuestInventoryLoadFlags,
 ): Promise<GuestInventoryLoadResult> {
-  const { userSteamId, tradeUrl, guestTargetSteamId, mode } = args;
+  const { userSteamId, tradeUrl, guestTargetSteamId, mode, bypassGuestFetchCooldown } = args;
 
   const parsedEarly = parseTradeUrl(tradeUrl.trim());
   if (!parsedEarly) {
@@ -239,7 +245,7 @@ async function runGuestInventoryLoad(
     if (age > STALE_WARNING_MS) flags.needsRefreshWarning = true;
   }
 
-  const respectCooldown = mode === "get";
+  const respectCooldown = mode === "get" && bypassGuestFetchCooldown !== true;
   const cdRemaining = await guestSteamFetchCooldownRemainingMs(userSteamId);
   if (respectCooldown && cdRemaining > 0) {
     flags.cooldownActive = true;

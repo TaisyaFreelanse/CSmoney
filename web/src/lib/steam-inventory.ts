@@ -95,6 +95,16 @@ export function parseTradeUrl(url: string): { partner: string; token: string } |
   }
 }
 
+/** Та же trade-ссылка (partner + token), даже если строка отличается (пробелы, порядок query). */
+export function tradeOfferUrlsEquivalent(stored: string | null | undefined, incoming: string): boolean {
+  const a = (stored ?? "").trim();
+  const b = incoming.trim();
+  if (a === b) return true;
+  const pa = a.length > 0 ? parseTradeUrl(a) : null;
+  const pb = parseTradeUrl(b);
+  return !!(pa && pb && pa.partner === pb.partner && pa.token === pb.token);
+}
+
 const STEAM64_OFFSET = BigInt("76561197960265728");
 
 /**

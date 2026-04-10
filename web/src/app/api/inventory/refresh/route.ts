@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import {
+  adminGuestOwnershipMismatch,
   guestTradeUrlHttpRejection,
   resolveGuestInventoryTargetSteamId,
   warnIfGuestSteamIdEqualsOwner,
@@ -82,22 +83,26 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const minPostMs = refreshPostMinRemainingMs(user.steamId);
-  const cooldownUser = await refreshCooldownRemainingUser(user.steamId);
-  const blockMs = Math.max(minPostMs, cooldownUser);
-  if (blockMs > 0) {
-    return NextResponse.json(
-      {
-        ...rateLimitBody(blockMs),
-        cooldownActive: true,
-        nextRefreshAt: new Date(Date.now() + blockMs).toISOString(),
-      },
-      { status: 429 },
-    );
-  }
-  markInventoryRefreshPost(user.steamId);
-
   const guestTargetSteamId = resolveGuestInventoryTargetSteamId(user);
+  const adminGuestForeign = adminGuestOwnershipMismatch(user);
+
+  if (!adminGuestForeign) {
+    const minPostMs = refreshPostMinRemainingMs(user.steamId);
+    const cooldownUser = await refreshCooldownRemainingUser(user.steamId);
+    const blockMs = Math.max(minPostMs, cooldownUser);
+    if (blockMs > 0) {
+      return NextResponse.json(
+        {
+          ...rateLimitBody(blockMs),
+          cooldownActive: true,
+          nextRefreshAt: new Date(Date.now() + blockMs).toISOString(),
+        },
+        { status: 429 },
+      );
+    }
+    markInventoryRefreshPost(user.steamId);
+  }
+
   const ownerSteamId = process.env.OWNER_STEAM_ID ?? "";
   const ownerNorm = ownerSteamId.trim() ? normalizeSteamId64ForCache(ownerSteamId) : "";
   const isPlatformOwner =
@@ -105,15 +110,18 @@ export async function POST(request: NextRequest) {
 
   if (guestTargetSteamId) {
     warnIfGuestSteamIdEqualsOwner("inventory/refresh", guestTargetSteamId);
-    await invalidateCache(guestTargetSteamId);
-    await invalidateCache(user.steamId);
-    await markUserRefreshed(user.steamId);
+    if (!adminGuestForeign) {
+      await invalidateCache(guestTargetSteamId);
+      await invalidateCache(user.steamId);
+      await markUserRefreshed(user.steamId);
+    }
 
     const loaded = await loadGuestInventoryForUser({
       userSteamId: user.steamId,
       tradeUrl: user.tradeUrl!,
       guestTargetSteamId,
       mode: "force_refresh",
+      bypassGuestFetchCooldown: adminGuestForeign,
     });
     if (!loaded.ok) {
       return NextResponse.json({ error: loaded.error, ...loaded.flags }, { status: 502 });

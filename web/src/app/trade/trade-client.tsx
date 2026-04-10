@@ -32,6 +32,7 @@ import {
 } from "@/lib/i18n";
 import { DEFAULT_FX_RATES, type SupportedFxCode } from "@/lib/fx-rates";
 import { OWNER_INVENTORY_PAGE_MAX } from "@/lib/owner-inventory-api-constants";
+import { tradeOfferUrlsEquivalent } from "@/lib/steam-inventory";
 
 import styles from "./page.module.css";
 
@@ -260,6 +261,10 @@ export default function TradePageClient({
   const [error, setError] = useState<string | null>(null);
   const [tradeSubmitError, setTradeSubmitError] = useState<string | null>(null);
   const [tradeUrl, setTradeUrl] = useState("");
+  /** Последняя ссылка с сервера (GET /api/profile/trade-url); для пропуска POST без изменений. */
+  const lastSavedTradeUrlRef = useRef<string>("");
+  const [tradeUrlSaving, setTradeUrlSaving] = useState(false);
+  const tradeUrlSaveInFlightRef = useRef(false);
   const [hasTradeUrl, setHasTradeUrl] = useState(false);
   const [editingTradeUrl, setEditingTradeUrl] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -796,7 +801,9 @@ export default function TradePageClient({
           if (td) {
             hasUrl = !!td.hasTradeUrl;
             setHasTradeUrl(hasUrl);
-            setTradeUrl(td.tradeUrl ?? "");
+            const fromServer = td.tradeUrl ?? "";
+            lastSavedTradeUrlRef.current = fromServer;
+            setTradeUrl(fromServer);
           }
         }
         if (hasUrl) {
@@ -815,6 +822,7 @@ export default function TradePageClient({
       ac.abort();
       cancelled = true;
     };
+    // Только GET /api/profile/trade-url при монте/смене loadMyInventory; POST — из saveTradeUrl по клику.
   }, [loadOwner, loadMyInventory]);
 
   useEffect(() => {
@@ -832,14 +840,11 @@ export default function TradePageClient({
   }, []);
 
   const saveTradeUrl = useCallback(async () => {
+    if (tradeUrlSaveInFlightRef.current) return;
     setError(null);
-    const res = await fetch("/api/profile/trade-url", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tradeUrl }),
-    });
-    if (res.ok) {
-      setHasTradeUrl(true);
+
+    if (tradeOfferUrlsEquivalent(lastSavedTradeUrlRef.current, tradeUrl)) {
+      setHasTradeUrl(lastSavedTradeUrlRef.current.trim().length > 0);
       setEditingTradeUrl(false);
       setMyInventoryLoading(true);
       try {
@@ -847,9 +852,34 @@ export default function TradePageClient({
       } finally {
         setMyInventoryLoading(false);
       }
-    } else {
-      const err = await res.json().catch(() => null);
-      setError(err?.message ?? t("errorSaveTradeUrl", lang));
+      return;
+    }
+
+    tradeUrlSaveInFlightRef.current = true;
+    setTradeUrlSaving(true);
+    try {
+      const res = await fetch("/api/profile/trade-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tradeUrl }),
+      });
+      if (res.ok) {
+        lastSavedTradeUrlRef.current = tradeUrl.trim();
+        setHasTradeUrl(true);
+        setEditingTradeUrl(false);
+        setMyInventoryLoading(true);
+        try {
+          await loadMyInventory();
+        } finally {
+          setMyInventoryLoading(false);
+        }
+      } else {
+        const err = await res.json().catch(() => null);
+        setError(err?.message ?? t("errorSaveTradeUrl", lang));
+      }
+    } finally {
+      tradeUrlSaveInFlightRef.current = false;
+      setTradeUrlSaving(false);
     }
   }, [tradeUrl, lang, loadMyInventory]);
 
@@ -1411,10 +1441,11 @@ export default function TradePageClient({
               <div className="flex gap-2">
                 <button
                   type="button"
+                  disabled={tradeUrlSaving}
                   onClick={() => void saveTradeUrl()}
-                  className="flex-1 rounded-lg bg-amber-600 py-2.5 text-xs font-bold text-white transition-colors hover:bg-amber-500"
+                  className="flex-1 rounded-lg bg-amber-600 py-2.5 text-xs font-bold text-white transition-colors hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {t("saveAndLoad", lang)}
+                  {tradeUrlSaving ? t("loading", lang) : t("saveAndLoad", lang)}
                 </button>
                 {hasTradeUrl && (
                   <button

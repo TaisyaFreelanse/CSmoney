@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import {
+  adminGuestOwnershipMismatch,
   guestTradeUrlHttpRejection,
   resolveGuestInventoryTargetSteamId,
   warnIfGuestSteamIdEqualsOwner,
@@ -43,14 +44,15 @@ export async function GET() {
   const isPlatformOwner =
     ownerNorm !== "" && normalizeSteamId64ForCache(user.steamId) === ownerNorm;
   const guestTargetSteamId = resolveGuestInventoryTargetSteamId(user);
+  const adminGuestForeign = adminGuestOwnershipMismatch(user);
 
   if (guestTargetSteamId) {
     invCacheLog(
-      `guest/me sessionSteamId=${user.steamId} sessionNorm=${normalizeSteamId64ForCache(user.steamId)} snapshotSteamId=${guestTargetSteamId} samePerson=${normalizeSteamId64ForCache(user.steamId) === guestTargetSteamId}`,
+      `guest/me sessionSteamId=${user.steamId} sessionNorm=${normalizeSteamId64ForCache(user.steamId)} snapshotSteamId=${guestTargetSteamId} samePerson=${normalizeSteamId64ForCache(user.steamId) === guestTargetSteamId} adminGuestForeign=${adminGuestForeign}`,
     );
     warnIfGuestSteamIdEqualsOwner("inventory/me", guestTargetSteamId);
 
-    const softRem = inventoryMeGuestSoftRemainingMs(user.steamId);
+    const softRem = adminGuestForeign ? 0 : inventoryMeGuestSoftRemainingMs(user.steamId);
     if (softRem > 0) {
       const snapOnly = await getGuestSnapshotEntry(guestTargetSteamId);
       if (snapOnly) {
@@ -82,6 +84,7 @@ export async function GET() {
       tradeUrl: user.tradeUrl!,
       guestTargetSteamId,
       mode: "get",
+      bypassGuestFetchCooldown: adminGuestForeign,
     });
     markInventoryMeGuestGet(user.steamId);
 

@@ -46,6 +46,17 @@ export function resolveGuestInventoryTargetSteamId(user: GuestInventoryActor): s
   return r.kind === "ok" ? r.derivedSteamId : null;
 }
 
+/**
+ * Админ с сохранённой trade URL на другой Steam (partner ≠ сессия): целевой инвентарь — derivedSteamId,
+ * без блокировок «не ваша ссылка» и без лишней инвалидации кэша по session SteamID.
+ */
+export function adminGuestOwnershipMismatch(user: Pick<User, "steamId" | "tradeUrl" | "isAdmin">): boolean {
+  if (user.isAdmin !== true) return false;
+  const target = resolveGuestInventoryTargetSteamId(user);
+  if (!target) return false;
+  return normalizeSteamId64ForCache(user.steamId) !== target;
+}
+
 /** Если в профиле есть trade URL, но он не даёт валидного гостевого инвентаря — код и текст для 400. */
 export function guestTradeUrlHttpRejection(user: GuestInventoryActor): {
   error: string;

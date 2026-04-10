@@ -8,7 +8,12 @@ import { getSessionUser } from "@/lib/auth";
 import { resolveGuestInventoryTargetSteamId, TRADE_URL_SHOP_OWNER_MESSAGE } from "@/lib/guest-inventory-target";
 import { invalidateCache } from "@/lib/inventory-cache";
 import { prisma } from "@/lib/prisma";
-import { normalizeSteamId64ForCache, parseTradeUrl, trySteamId64FromPartner } from "@/lib/steam-inventory";
+import {
+  normalizeSteamId64ForCache,
+  parseTradeUrl,
+  tradeOfferUrlsEquivalent,
+  trySteamId64FromPartner,
+} from "@/lib/steam-inventory";
 
 export const dynamic = "force-dynamic";
 
@@ -115,6 +120,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (tradeOfferUrlsEquivalent(user.tradeUrl, tradeUrl.trim())) {
+    return NextResponse.json({
+      ok: true,
+      unchanged: true,
+      partner: parsed.partner,
+      version: TRADE_URL_API_VERSION,
+    });
+  }
+
   const beforeActor = {
     steamId: user.steamId,
     tradeUrl: user.tradeUrl,
@@ -129,19 +143,22 @@ export async function POST(request: NextRequest) {
     data: { tradeUrl: tradeUrl.trim() },
   });
 
-  const cacheKeys = new Set<string>();
-  const addInvalidateKey = (sid: string | null | undefined) => {
-    if (!sid?.trim()) return;
-    cacheKeys.add(normalizeSteamId64ForCache(sid));
-  };
-  addInvalidateKey(user.steamId);
-  addInvalidateKey(derivedSteamId);
-  const oldT = resolveGuestInventoryTargetSteamId(beforeActor);
-  const newT = resolveGuestInventoryTargetSteamId(afterActor);
-  addInvalidateKey(oldT);
-  addInvalidateKey(newT);
-  for (const sid of cacheKeys) {
-    await invalidateCache(sid);
+  // Админ с чужой ссылкой: не сбрасываем снимки по session/старому derived — грузим строго по URL (snapshotSteamId).
+  if (!(isAdmin && ownershipMismatch)) {
+    const cacheKeys = new Set<string>();
+    const addInvalidateKey = (sid: string | null | undefined) => {
+      if (!sid?.trim()) return;
+      cacheKeys.add(normalizeSteamId64ForCache(sid));
+    };
+    addInvalidateKey(user.steamId);
+    addInvalidateKey(derivedSteamId);
+    const oldT = resolveGuestInventoryTargetSteamId(beforeActor);
+    const newT = resolveGuestInventoryTargetSteamId(afterActor);
+    addInvalidateKey(oldT);
+    addInvalidateKey(newT);
+    for (const sid of cacheKeys) {
+      await invalidateCache(sid);
+    }
   }
 
   return NextResponse.json({
