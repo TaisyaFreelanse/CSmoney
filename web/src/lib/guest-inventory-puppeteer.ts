@@ -5,7 +5,7 @@ import path from "node:path";
 
 import type { Browser, Page, PuppeteerNode } from "puppeteer";
 
-import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-inventory";
+import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
 
 const LOG = "[guest-inv-puppeteer]";
 

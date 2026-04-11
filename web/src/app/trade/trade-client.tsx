@@ -32,7 +32,7 @@ import {
 } from "@/lib/i18n";
 import { DEFAULT_FX_RATES, type SupportedFxCode } from "@/lib/fx-rates";
 import { OWNER_INVENTORY_PAGE_MAX } from "@/lib/owner-inventory-api-constants";
-import { tradeOfferUrlsEquivalent } from "@/lib/steam-inventory";
+import { tradeOfferUrlsEquivalent } from "@/lib/steam-community-url";
 
 import styles from "./page.module.css";
 

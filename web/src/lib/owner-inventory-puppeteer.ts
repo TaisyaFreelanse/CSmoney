@@ -1,7 +1,7 @@
 import "server-only";
 
 import { fetchGuestInventoryViaTradeOfferPuppeteer } from "@/lib/guest-inventory-puppeteer";
-import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-inventory";
+import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
 
 /**
  * Owner shop: same trade-offer / partner-column capture as guest, with OWNER_TRADE_URL pointing at this account.
