@@ -19,6 +19,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Chez.Trading - Trade CS2 skins fast",
   description: "Ручной обмен скинами CS2",
+  icons: {
+    icon: [{ url: "/favicon.jpg", type: "image/jpeg" }],
+    apple: "/favicon.jpg",
+    shortcut: "/favicon.jpg",
+  },
 };
 
 export default function RootLayout({

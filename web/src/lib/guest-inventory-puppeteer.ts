@@ -29,22 +29,32 @@ const INVENTORY_JSON_IDLE_AFTER_POSITIVE_MS = 850;
 /** If `more_items` stays true but no new JSON arrives, stop and let API merge complete the list. */
 const INVENTORY_JSON_STALL_WHILE_MORE_MS = 2800;
 
-function logGuestPuppeteer(event: string, payload: Record<string, unknown> = {}): void {
-  console.log(JSON.stringify({ type: "guest_inv_puppeteer", event, ts: Date.now(), ...payload }));
+export type TradeOfferPuppeteerLogProfile = "guest" | "owner";
+
+function logTradeOfferPuppeteer(
+  profile: TradeOfferPuppeteerLogProfile,
+  event: string,
+  payload: Record<string, unknown> = {},
+): void {
+  const type = profile === "owner" ? "owner_inv_puppeteer" : "guest_inv_puppeteer";
+  console.log(JSON.stringify({ type, event, ts: Date.now(), ...payload }));
 }
 
 let guestPuppeteerCookiesPresenceLogged = false;
 
-function logPartnerInventorySummary(payload: {
-  totalItems: number;
-  xhrCount: number;
-  maxItems: number;
-  hadPositiveItems: boolean;
-  usedWindowFallback: boolean;
-  steamId64: string;
-  outcome: "success" | "failed";
-}): void {
-  logGuestPuppeteer("partner_inventory_summary", payload);
+function logPartnerInventorySummary(
+  profile: TradeOfferPuppeteerLogProfile,
+  payload: {
+    totalItems: number;
+    xhrCount: number;
+    maxItems: number;
+    hadPositiveItems: boolean;
+    usedWindowFallback: boolean;
+    steamId64: string;
+    outcome: "success" | "failed";
+  },
+): void {
+  logTradeOfferPuppeteer(profile, "partner_inventory_summary", payload);
 }
 
 function countItemsInInventoryJson(o: Record<string, unknown>): number {
@@ -94,8 +104,10 @@ function cookiesEnabled(): boolean {
 export function ensureGuestPuppeteerCookiesLoggedOnce(): void {
   if (guestPuppeteerCookiesPresenceLogged) return;
   guestPuppeteerCookiesPresenceLogged = true;
-  logGuestPuppeteer("puppeteer_cookies_present", { present: cookiesEnabled() });
+  logTradeOfferPuppeteer("guest", "puppeteer_cookies_present", { present: cookiesEnabled() });
 }
+
+export type TradeOfferPuppeteerOptions = { logProfile?: TradeOfferPuppeteerLogProfile };
 
 /** Same path as scripts/install-chrome-for-puppeteer.mjs + render-start.mjs (Render slug includes web/). */
 function ensurePuppeteerCacheDir(): void {
@@ -540,16 +552,20 @@ async function tryReadPartnerInventoryFromTradeWindowGlobals(
  * Trade-offer page: ждём UI → выбор CS2 (730) + context 2 у партнёра → XHR partnerinventory,
  * затем пагинация и merge только партнёрских ответов (фильтр по SteamID из trade URL).
  */
-export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string): Promise<PuppeteerGuestInventoryResult> {
+export async function fetchGuestInventoryViaTradeOfferPuppeteer(
+  tradeUrl: string,
+  options?: TradeOfferPuppeteerOptions,
+): Promise<PuppeteerGuestInventoryResult> {
+  const lp: TradeOfferPuppeteerLogProfile = options?.logProfile ?? "guest";
   const disabledReasonEarly = cookiesDisabledReason();
   if (disabledReasonEarly) {
-    logGuestPuppeteer("puppeteer_disabled_no_cookies", { reason: disabledReasonEarly });
+    logTradeOfferPuppeteer(lp, "puppeteer_disabled_no_cookies", { reason: disabledReasonEarly });
     return { ok: false, reason: "disabled", detail: disabledReasonEarly };
   }
 
   const parsed = parseTradeUrl(tradeUrl);
   if (!parsed) {
-    logGuestPuppeteer("puppeteer_failed", { reason: "invalid_trade_url" });
+    logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "invalid_trade_url" });
     return { ok: false, reason: "invalid_trade_url" };
   }
 
@@ -562,7 +578,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     puppeteerMod = await import("puppeteer");
   } catch (e) {
     console.warn(LOG, "puppeteer import failed", e);
-    logGuestPuppeteer("puppeteer_failed", { reason: "launch_failed", detail: "puppeteer_not_installed" });
+    logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "launch_failed", detail: "puppeteer_not_installed" });
     return { ok: false, reason: "launch_failed", detail: "puppeteer_not_installed" };
   }
 
@@ -585,8 +601,8 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
   }
 
   if (executablePath && !existsSync(executablePath)) {
-    logGuestPuppeteer("puppeteer_chrome_missing", { executablePath, steamId64 });
-    logGuestPuppeteer("puppeteer_failed", {
+    logTradeOfferPuppeteer(lp,"puppeteer_chrome_missing", { executablePath, steamId64 });
+    logTradeOfferPuppeteer(lp,"puppeteer_failed", {
       reason: "launch_failed",
       detail: "puppeteer_chrome_missing",
       steamId64,
@@ -597,11 +613,11 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
   const cookieHeader = process.env.STEAM_COMMUNITY_COOKIES!.trim();
   const cookiePairs = parseCookieHeader(cookieHeader);
   if (cookiePairs.length === 0) {
-    logGuestPuppeteer("puppeteer_disabled_no_cookies", { reason: "no_steam_community_cookies", detail: "no_cookie_pairs" });
+    logTradeOfferPuppeteer(lp,"puppeteer_disabled_no_cookies", { reason: "no_steam_community_cookies", detail: "no_cookie_pairs" });
     return { ok: false, reason: "disabled", detail: "no_cookie_pairs" };
   }
 
-  logGuestPuppeteer("puppeteer_invoke", {
+  logTradeOfferPuppeteer(lp, lp === "owner" ? "puppeteer_owner_invoke" : "puppeteer_invoke", {
     steamId64,
     trade_url: canonical.length > 160 ? `${canonical.slice(0, 160)}…` : canonical,
   });
@@ -632,7 +648,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
 
   try {
     if (timeLeft() < 1500) {
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: 0,
         xhrCount: 0,
         maxItems: 0,
@@ -641,7 +657,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "failed",
       });
-      logGuestPuppeteer("puppeteer_failed", { reason: "timeout", detail: "max_browser_time_precheck" });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "timeout", detail: "max_browser_time_precheck" });
       return { ok: false, reason: "timeout", detail: "max_browser_time" };
     }
 
@@ -725,7 +741,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
           }
         }
 
-        logGuestPuppeteer("partner_inventory_xhr", {
+        logTradeOfferPuppeteer(lp,"partner_inventory_xhr", {
           path: pathShort,
           items_count: nItems,
           partner_trade_offer_cs2: isOfferCs2,
@@ -750,7 +766,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     lastInventoryJsonAt = Date.now();
 
     await waitForTradeUi(page, Math.min(TRADE_UI_WAIT_MS, Math.max(4000, timeLeft() - 3000)));
-    logGuestPuppeteer("trade_ui_ready", { steamId64 });
+    logTradeOfferPuppeteer(lp,"trade_ui_ready", { steamId64 });
 
     try {
       await page.click("#trade_theirs .trade_item_box, #trade_theirs").catch(() => {});
@@ -770,7 +786,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       Number(selectResult.beforeThemStatus.contextid) === TARGET_CONTEXTID;
     const switched = selectionInvoked || !alreadyTarget;
 
-    logGuestPuppeteer("partner_inventory_context_selected", {
+    logTradeOfferPuppeteer(lp,"partner_inventory_context_selected", {
       appid: TARGET_APPID,
       contextid: TARGET_CONTEXTID,
       switched,
@@ -788,7 +804,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     let xhrWaitAccum = 0;
     for (let unlockAttempt = 1; unlockAttempt <= 2; unlockAttempt++) {
       if (unlockAttempt === 2) {
-        logGuestPuppeteer("partner_inventory_context_retry", { steamId64, unlockAttempt: 2 });
+        logTradeOfferPuppeteer(lp,"partner_inventory_context_retry", { steamId64, unlockAttempt: 2 });
         await selectPartnerCs2Inventory(page);
       }
       const xhrWaitStart = Date.now();
@@ -805,7 +821,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       if (partnerCs2TradeOfferXhrSeen) break;
     }
 
-    logGuestPuppeteer("partner_inventory_xhr_wait_done", {
+    logTradeOfferPuppeteer(lp,"partner_inventory_xhr_wait_done", {
       waited_ms: xhrWaitAccum,
       partner_cs2_xhr_seen: partnerCs2TradeOfferXhrSeen,
       max_items_from_partner_cs2_xhr: partnerCs2TradeOfferMaxItems,
@@ -816,7 +832,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     if (!partnerCs2TradeOfferXhrSeen) {
       const mergedTimeout = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
       const nTimeout = mergedTimeout.assets?.length ?? 0;
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nTimeout,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -825,7 +841,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "failed",
       });
-      logGuestPuppeteer("puppeteer_failed", {
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", {
         reason: "timeout",
         detail: "partnerinventory_cs2_xhr",
         steamId64,
@@ -866,7 +882,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       if (receivedInventoryJsonPayload) {
         if (!lastResponseHadMoreItems && idle >= idleThreshold) {
           console.log(LOG, "ok assets=", n, "steamId64=", steamId64, "more_items=false idle=", idle);
-          logPartnerInventorySummary({
+          logPartnerInventorySummary(lp, {
             totalItems: n,
             xhrCount: partnerInventoryXhrCount,
             maxItems: maxSingleXhrItems,
@@ -875,7 +891,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
             steamId64,
             outcome: "success",
           });
-          logGuestPuppeteer("puppeteer_success", { items_count: n, steamId64, more_items: false });
+          logTradeOfferPuppeteer(lp,"puppeteer_success", { items_count: n, steamId64, more_items: false });
           return { ok: true, raw: mergedTry, steamId64, source: "trade_url" };
         }
         if (lastResponseHadMoreItems && idle >= INVENTORY_JSON_STALL_WHILE_MORE_MS && n > 0) {
@@ -888,7 +904,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
             "idle=",
             idle,
           );
-          logPartnerInventorySummary({
+          logPartnerInventorySummary(lp, {
             totalItems: n,
             xhrCount: partnerInventoryXhrCount,
             maxItems: maxSingleXhrItems,
@@ -897,7 +913,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
             steamId64,
             outcome: "success",
           });
-          logGuestPuppeteer("puppeteer_success", { items_count: n, steamId64, more_items: true, partial: true });
+          logTradeOfferPuppeteer(lp,"puppeteer_success", { items_count: n, steamId64, more_items: true, partial: true });
           return { ok: true, raw: mergedTry, steamId64, source: "trade_url" };
         }
       }
@@ -908,7 +924,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     if (timeLeft() <= 0) {
       const mergedT = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
       const nT = mergedT.assets?.length ?? 0;
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nT,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -917,7 +933,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "failed",
       });
-      logGuestPuppeteer("puppeteer_failed", { reason: "timeout", detail: "max_browser_time", steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "timeout", detail: "max_browser_time", steamId64 });
       return { ok: false, reason: "timeout", detail: "max_browser_time" };
     }
 
@@ -932,7 +948,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       (!mergedEarly.assets || mergedEarly.assets.length === 0)
     ) {
       const nEmpty = mergedEarly.assets?.length ?? 0;
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nEmpty,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -941,7 +957,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "success",
       });
-      logGuestPuppeteer("puppeteer_success", {
+      logTradeOfferPuppeteer(lp,"puppeteer_success", {
         items_count: nEmpty,
         steamId64,
         note: "empty_after_unlock",
@@ -957,7 +973,7 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     const merged = mergeCommunityInventoryJson(jsonChunks);
     const obj = merged as { assets?: unknown[] };
     if (obj.assets && obj.assets.length > 0) {
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: obj.assets.length,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -966,12 +982,12 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "success",
       });
-      logGuestPuppeteer("puppeteer_success", { items_count: obj.assets.length, steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_success", { items_count: obj.assets.length, steamId64 });
       return { ok: true, raw: merged, steamId64, source: "trade_url" };
     }
     if (receivedInventoryJsonPayload && !saw403Inventory && !saw401Inventory && !saw429Inventory) {
       const nRem = obj.assets?.length ?? 0;
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nRem,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -980,14 +996,14 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
         steamId64,
         outcome: "success",
       });
-      logGuestPuppeteer("puppeteer_success", { items_count: nRem, steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_success", { items_count: nRem, steamId64 });
       return { ok: true, raw: merged, steamId64, source: "trade_url" };
     }
 
     const mergedFail = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
     const nFail = mergedFail.assets?.length ?? 0;
     const failSummary = () =>
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nFail,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -999,33 +1015,33 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
 
     if (dom.tradeBlocked || textClass === "cannot_trade") {
       failSummary();
-      logGuestPuppeteer("puppeteer_failed", { reason: "cannot_trade", steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "cannot_trade", steamId64 });
       return { ok: false, reason: "cannot_trade" };
     }
     if (saw403Inventory || saw401Inventory || dom.profilePrivate || textClass === "private") {
       failSummary();
-      logGuestPuppeteer("puppeteer_failed", { reason: "private", steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "private", steamId64 });
       return { ok: false, reason: "private" };
     }
     if (saw429Inventory) {
       failSummary();
-      logGuestPuppeteer("puppeteer_failed", { reason: "rate_limited", detail: "inventory_http_429", steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "rate_limited", detail: "inventory_http_429", steamId64 });
       return { ok: false, reason: "rate_limited", detail: "inventory_http_429" };
     }
     if (dom.inventoryUnavailable || textClass === "not_available") {
       failSummary();
-      logGuestPuppeteer("puppeteer_failed", { reason: "not_available", steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "not_available", steamId64 });
       return { ok: false, reason: "not_available" };
     }
     failSummary();
-    logGuestPuppeteer("puppeteer_failed", { reason: "empty", steamId64 });
+    logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "empty", steamId64 });
     return { ok: false, reason: "empty" };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     try {
       const mergedCatch = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
       const nCatch = mergedCatch.assets?.length ?? 0;
-      logPartnerInventorySummary({
+      logPartnerInventorySummary(lp, {
         totalItems: nCatch,
         xhrCount: partnerInventoryXhrCount,
         maxItems: maxSingleXhrItems,
@@ -1038,11 +1054,11 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       /* ignore */
     }
     if (msg.includes("timeout") || msg.includes("Timeout") || timeLeft() <= 0) {
-      logGuestPuppeteer("puppeteer_failed", { reason: "timeout", detail: msg, steamId64 });
+      logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "timeout", detail: msg, steamId64 });
       return { ok: false, reason: "timeout", detail: msg };
     }
     console.error(LOG, "error", e);
-    logGuestPuppeteer("puppeteer_failed", { reason: "unknown", detail: msg, steamId64 });
+    logTradeOfferPuppeteer(lp,"puppeteer_failed", { reason: "unknown", detail: msg, steamId64 });
     return { ok: false, reason: "unknown", detail: msg };
   } finally {
     if (browser) {

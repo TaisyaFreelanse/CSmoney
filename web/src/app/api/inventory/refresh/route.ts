@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(rateLimitBody(cooldown), { status: 429 });
     }
 
-    const result = await fetchOwnerInventory();
+    const result = await fetchOwnerInventory({ forceRefresh: true });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 502 });
     }
@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
     await invalidateCache(user.steamId);
     await markUserRefreshed(user.steamId);
 
-    const result = await fetchOwnerInventory();
+    const result = await fetchOwnerInventory({ forceRefresh: true });
     if (!result.ok) {
       return NextResponse.json({ error: result.error }, { status: 502 });
     }

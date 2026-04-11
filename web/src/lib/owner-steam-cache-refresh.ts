@@ -5,7 +5,7 @@ import { fetchOwnerInventory } from "@/lib/steam-inventory";
 /** Fetches owner inventory from Steam and replaces the in-memory cache entry. */
 export async function refreshOwnerSteamItemsInCache(ownerSteamId: string): Promise<boolean> {
   invCacheLog(`STEAM_FETCH start ownerSteamId=${ownerSteamId} key=csmoney:inv:snapshot:${ownerSteamId}`);
-  const result = await fetchOwnerInventory();
+  const result = await fetchOwnerInventory({ forceRefresh: true });
   if (!result.ok) {
     invCacheLog(`STEAM_FETCH fail ownerSteamId=${ownerSteamId} error=${result.error}`);
     return false;

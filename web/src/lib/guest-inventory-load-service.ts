@@ -273,8 +273,6 @@ async function runGuestInventoryLoad(
 ): Promise<GuestInventoryLoadResult> {
   const { userSteamId, tradeUrl, guestTargetSteamId, mode, bypassGuestFetchCooldown } = args;
 
-  ensureGuestPuppeteerCookiesLoggedOnce();
-
   const parsedEarly = parseTradeUrl(tradeUrl.trim());
   if (!parsedEarly) {
     return { ok: false, error: "invalid_trade_url", flags };
@@ -300,17 +298,28 @@ async function runGuestInventoryLoad(
     if (age > STALE_WARNING_MS) flags.needsRefreshWarning = true;
   }
 
+  /** GET с уже сохранённым снимком: не трогаем Puppeteer/Web API (избегаем задержки при каждом заходе / смене языка). */
+  if (mode === "get" && snap) {
+    flags.skipSteamFetch = true;
+    logGuestInvPipeline("cache_hit_skip_steam", {
+      source: "guest_snapshot",
+      mode,
+      itemCount: snap.items.length,
+      ageMs: Date.now() - snap.fetchedAt,
+    });
+    return { ok: true, items: snap.items, flags };
+  }
+
   const respectCooldown = mode === "get" && bypassGuestFetchCooldown !== true;
   const cdRemaining = await guestSteamFetchCooldownRemainingMs(userSteamId);
   if (respectCooldown && cdRemaining > 0) {
     flags.cooldownActive = true;
     flags.nextRefreshAt = nextIso(cdRemaining);
     flags.retryAfterMs = cdRemaining;
-    if (snap) {
-      return { ok: true, items: snap.items, flags };
-    }
     return { ok: false, error: "cooldown_active", flags };
   }
+
+  ensureGuestPuppeteerCookiesLoggedOnce();
 
   const steamId64 = snapshotSteamId;
 

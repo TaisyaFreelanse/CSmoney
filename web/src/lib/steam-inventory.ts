@@ -867,27 +867,155 @@ async function fetchSteamInventoryRaw(
 // Public API
 // ---------------------------------------------------------------------------
 
-export async function fetchOwnerInventory(): Promise<
-  { ok: true; items: NormalizedItem[] } | { ok: false; error: string }
+export type OwnerInventoryPrimarySource = "trade_url" | "api" | "snapshot";
+
+export type FetchOwnerInventoryOptions = { forceRefresh?: boolean };
+
+/**
+ * Owner store inventory from Steam (Puppeteer trade URL + API merge, or API-only).
+ * By default reads existing Redis/memory snapshot if present — no browser/API round-trip.
+ * Pass `forceRefresh: true` after invalidating cache or for admin refresh jobs.
+ */
+export async function fetchOwnerInventory(
+  options?: FetchOwnerInventoryOptions,
+): Promise<
+  | { ok: true; items: NormalizedItem[]; ownerInventoryPrimarySource: OwnerInventoryPrimarySource }
+  | { ok: false; error: string }
 > {
-  const ownerSteamId = process.env.OWNER_STEAM_ID;
+  const ownerSteamId = process.env.OWNER_STEAM_ID?.trim();
   if (!ownerSteamId) return { ok: false, error: "missing_owner_steam_id" };
+
+  if (!options?.forceRefresh) {
+    const { getCached } = await import("@/lib/inventory-cache");
+    const cached = await getCached(ownerSteamId);
+    if (cached != null) {
+      return {
+        ok: true,
+        items: cached,
+        ownerInventoryPrimarySource: "snapshot",
+      };
+    }
+  }
 
   const ctx = resolveOwnerInventoryContextId();
   console.log(`[steam-inv] fetchOwnerInventory steamId=${ownerSteamId} context=${ctx}`);
-  let result = await fetchSteamInventoryRaw(ownerSteamId, ctx);
-  if (
-    !result.ok &&
-    ctx !== DEFAULT_CS2_INVENTORY_CONTEXT_ID &&
-    ownerInventoryErrorAllowsDefaultContextFallback(result.error)
-  ) {
-    console.warn(
-      `[steam-inv] owner context=${ctx} failed (${result.error}) — Steam usually does not serve this context to servers like on the web with a session; retrying context=${DEFAULT_CS2_INVENTORY_CONTEXT_ID}`,
-    );
-    result = await fetchSteamInventoryRaw(ownerSteamId, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
+
+  const fetchOwnerApiNormalized = async (): Promise<
+    { ok: true; items: NormalizedItem[] } | { ok: false; error: string }
+  > => {
+    let result = await fetchSteamInventoryRaw(ownerSteamId, ctx);
+    if (
+      !result.ok &&
+      ctx !== DEFAULT_CS2_INVENTORY_CONTEXT_ID &&
+      ownerInventoryErrorAllowsDefaultContextFallback(result.error)
+    ) {
+      console.warn(
+        `[steam-inv] owner context=${ctx} failed (${result.error}) — Steam usually does not serve this context to servers like on the web with a session; retrying context=${DEFAULT_CS2_INVENTORY_CONTEXT_ID}`,
+      );
+      result = await fetchSteamInventoryRaw(ownerSteamId, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
+    }
+    if (!result.ok) return result;
+    return { ok: true, items: normalizeInventory(result.data, ownerSteamId) };
+  };
+
+  /** Same merge rule as guest: browser/trade page wins on duplicate assetId. */
+  const mergeOwnerInventoriesPreferBrowser = (
+    browserItems: NormalizedItem[],
+    apiItems: NormalizedItem[],
+  ): NormalizedItem[] => {
+    const m = new Map<string, NormalizedItem>();
+    for (const i of apiItems) m.set(i.assetId, i);
+    for (const i of browserItems) m.set(i.assetId, i);
+    return [...m.values()];
+  };
+
+  const tradeUrl = process.env.OWNER_TRADE_URL?.trim();
+  const canPuppeteer =
+    Boolean(process.env.STEAM_COMMUNITY_COOKIES?.trim()) && process.env.STEAM_INVENTORY_BROWSER !== "0";
+
+  if (!tradeUrl || !canPuppeteer) {
+    const api = await fetchOwnerApiNormalized();
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
   }
-  if (!result.ok) return result;
-  return { ok: true, items: normalizeInventory(result.data, ownerSteamId) };
+
+  const { runThroughSteamGuestGate } = await import("@/lib/guest-steam-global-gate");
+  const { fetchOwnerInventoryViaTradeOfferPuppeteer } = await import("@/lib/owner-inventory-puppeteer");
+  const { ensureGuestPuppeteerCookiesLoggedOnce } = await import("@/lib/guest-inventory-puppeteer");
+  ensureGuestPuppeteerCookiesLoggedOnce();
+
+  const apiAfterBrowser = async (skipMinSpacing: boolean) => {
+    const g = await runThroughSteamGuestGate(() => fetchOwnerApiNormalized(), { skipMinSpacing });
+    if (!g.ok) {
+      console.warn("[steam-inv] owner inventory API (after browser) queue full — ungated API attempt");
+      return fetchOwnerApiNormalized();
+    }
+    return g.value;
+  };
+
+  const finishTradeUrlSuccess = async (raw: unknown) => {
+    const browserItems = normalizeInventory(raw, ownerSteamId);
+    const api = await apiAfterBrowser(true);
+    const items = api.ok ? mergeOwnerInventoriesPreferBrowser(browserItems, api.items) : browserItems;
+    return { ok: true as const, items, ownerInventoryPrimarySource: "trade_url" as const };
+  };
+
+  const g1 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl));
+  if (!g1.ok) {
+    const api = await fetchOwnerApiNormalized();
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
+  let p = g1.value;
+  if (p.ok) {
+    return finishTradeUrlSuccess(p.raw);
+  }
+
+  if (p.reason === "disabled" || p.reason === "launch_failed") {
+    const api = await fetchOwnerApiNormalized();
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
+  if (p.reason === "not_available") {
+    const g2 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl), {
+      skipMinSpacing: true,
+    });
+    if (g2.ok && g2.value.ok) {
+      return finishTradeUrlSuccess(g2.value.raw);
+    }
+    const api = await apiAfterBrowser(false);
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
+  if (p.reason === "private") {
+    const g2 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl));
+    if (g2.ok && g2.value.ok) {
+      return finishTradeUrlSuccess(g2.value.raw);
+    }
+    const api = await apiAfterBrowser(false);
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
+  if (
+    p.reason === "cannot_trade" ||
+    p.reason === "empty" ||
+    p.reason === "timeout" ||
+    p.reason === "rate_limited" ||
+    p.reason === "unknown" ||
+    p.reason === "invalid_trade_url"
+  ) {
+    const api = await apiAfterBrowser(false);
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
+  const api = await apiAfterBrowser(false);
+  if (!api.ok) return api;
+  return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
 }
 
 export async function fetchGuestInventory(
