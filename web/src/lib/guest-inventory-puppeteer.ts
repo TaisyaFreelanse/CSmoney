@@ -58,6 +58,14 @@ function parseCookieHeader(header: string): { name: string; value: string }[] {
   return out;
 }
 
+function descKeyFromRow(row: Record<string, unknown>): string {
+  return `${row.classid}_${row.instanceid ?? "0"}`;
+}
+
+/**
+ * Merges Steam inventory JSON chunks: new `/inventory/.../730/...` shape and trade-window
+ * `/tradeoffer/new/partnerinventory` shape (`rgInventory` / `rgDescriptions`).
+ */
 function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
   const allAssets: unknown[] = [];
   const allAssetProps: unknown[] = [];
@@ -65,18 +73,53 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
   for (const chunk of chunks) {
     if (!chunk || typeof chunk !== "object") continue;
     const j = chunk as Record<string, unknown>;
-    if (Array.isArray(j.assets)) allAssets.push(...j.assets);
+
+    if (Array.isArray(j.assets)) {
+      allAssets.push(...j.assets);
+    } else if (j.rgInventory && typeof j.rgInventory === "object") {
+      const rgInv = j.rgInventory as Record<string, Record<string, unknown>>;
+      for (const a of Object.values(rgInv)) {
+        if (!a || typeof a !== "object") continue;
+        allAssets.push({
+          assetid: String(a.id ?? a.assetid ?? ""),
+          classid: a.classid,
+          instanceid: a.instanceid ?? "0",
+          amount: a.amount,
+        });
+      }
+    }
+
     if (Array.isArray(j.asset_properties)) allAssetProps.push(...j.asset_properties);
+
     if (Array.isArray(j.descriptions)) {
       for (const d of j.descriptions) {
         const row = d as Record<string, unknown>;
-        const key = `${row.classid}_${row.instanceid}`;
+        const key = descKeyFromRow(row);
+        if (!descMap.has(key)) descMap.set(key, d);
+      }
+    }
+    if (j.rgDescriptions && typeof j.rgDescriptions === "object") {
+      const rgDesc = j.rgDescriptions as Record<string, unknown>;
+      for (const d of Object.values(rgDesc)) {
+        const row = d as Record<string, unknown>;
+        if (!row || typeof row !== "object") continue;
+        const key = descKeyFromRow(row);
         if (!descMap.has(key)) descMap.set(key, d);
       }
     }
   }
+
+  const byAssetId = new Map<string, unknown>();
+  for (const a of allAssets) {
+    if (!a || typeof a !== "object") continue;
+    const ar = a as Record<string, unknown>;
+    const id = String(ar.assetid ?? ar.id ?? "").trim();
+    if (!id) continue;
+    if (!byAssetId.has(id)) byAssetId.set(id, a);
+  }
+
   return {
-    assets: allAssets,
+    assets: [...byAssetId.values()],
     descriptions: Array.from(descMap.values()),
     asset_properties: allAssetProps,
   };
@@ -141,14 +184,75 @@ async function classifyDom(page: Page): Promise<{
     }));
 }
 
-function isInventoryJsonUrl(url: string): boolean {
+/** XHR/fetch used on trade-offer page and public inventory JSON (730 = CS2). */
+function isRelevantInventoryResponseUrl(url: string): boolean {
   try {
     const u = new URL(url);
-    if (!u.hostname.endsWith("steamcommunity.com")) return false;
-    return /\/inventory\/\d+\/730\/\d/i.test(u.pathname);
+    const h = u.hostname.toLowerCase();
+    if (!h.endsWith("steamcommunity.com")) return false;
+    const p = u.pathname;
+    if (p.includes("/tradeoffer/new/partnerinventory")) return true;
+    if (/\/inventory\/[^/]+\/730\/\d+/i.test(p)) return true;
+    if (/\/profiles\/[^/]+\/inventory\/json\/730\//i.test(p)) return true;
+    if (/\/id\/[^/]+\/inventory\/json\/730\//i.test(p)) return true;
+    return false;
   } catch {
     return false;
   }
+}
+
+function inventoryResponseHasMoreItems(body: Record<string, unknown>): boolean {
+  if (body.more_items === true) return true;
+  if (body.more === true) return true;
+  if (body.more_start === true) return true;
+  return false;
+}
+
+/** Ignore Steam error JSON; accept new `assets` or trade `rgInventory` (may be empty). */
+function isUsableInventoryJson(data: Record<string, unknown>): boolean {
+  if (data.success === false || data.success === 0) return false;
+  if (Array.isArray(data.assets)) return true;
+  if (data.rgInventory != null && typeof data.rgInventory === "object") return true;
+  return false;
+}
+
+/** Trade-window globals after async init (fallback if XHR missed). */
+async function tryReadInventoryFromTradeWindowGlobals(page: Page): Promise<unknown | null> {
+  return page
+    .evaluate(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const pick = (raw: unknown): unknown | null => {
+        if (!raw || typeof raw !== "object") return null;
+        const o = raw as Record<string, unknown>;
+        const inv = o.rgInventory;
+        const desc = o.rgDescriptions;
+        if (inv && desc && typeof inv === "object" && typeof desc === "object") {
+          return {
+            rgInventory: inv,
+            rgDescriptions: desc,
+            asset_properties: o.rgAssetProperties ?? o.asset_properties ?? [],
+          };
+        }
+        return null;
+      };
+
+      const app = w.g_rgAppContextData as Record<string, Record<string, unknown>> | undefined;
+      if (app) {
+        const ctx730 = app[730] ?? app["730"];
+        const ctx2 = ctx730?.[2] ?? ctx730?.["2"];
+        if (ctx2) {
+          const got = pick(ctx2);
+          if (got) return got;
+        }
+      }
+
+      for (const key of ["UserThem", "UserYou", "g_rgCurrentInventory"]) {
+        const got = pick(w[key]);
+        if (got) return got;
+      }
+      return null;
+    })
+    .catch(() => null);
 }
 
 /**
@@ -236,28 +340,51 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
       })),
     );
 
+    const jsonBodyTasks: Promise<void>[] = [];
+
     page.on("response", (response) => {
       const url = response.url();
-      if (!isInventoryJsonUrl(url)) return;
+      if (!isRelevantInventoryResponseUrl(url)) return;
       const status = response.status();
       if (status === 403) saw403Inventory = true;
       if (status === 401) saw401Inventory = true;
       if (status === 429) saw429Inventory = true;
       if (status !== 200) return;
-      const ct = response.headers()["content-type"] ?? "";
-      if (!ct.includes("application/json") && !ct.includes("text/json")) return;
-      void response
-        .json()
-        .then((data) => {
-          if (data && typeof data === "object") {
-            receivedInventoryJsonPayload = true;
-            lastInventoryJsonAt = Date.now();
-            jsonChunks.push(data);
-            const o = data as Record<string, unknown>;
-            lastResponseHadMoreItems = o.more_items === true;
-          }
-        })
-        .catch(() => {});
+
+      const task = (async () => {
+        let text: string;
+        try {
+          text = await response.text();
+        } catch {
+          return;
+        }
+        const t = text.trim();
+        if (!t.startsWith("{") && !t.startsWith("[")) return;
+        let data: unknown;
+        try {
+          data = JSON.parse(t);
+        } catch {
+          return;
+        }
+        if (!data || typeof data !== "object") return;
+        const o = data as Record<string, unknown>;
+        if (!isUsableInventoryJson(o)) return;
+
+        receivedInventoryJsonPayload = true;
+        lastInventoryJsonAt = Date.now();
+        jsonChunks.push(o);
+        lastResponseHadMoreItems = inventoryResponseHasMoreItems(o);
+        try {
+          const path = new URL(url).pathname;
+          const nAssets = Array.isArray(o.assets)
+            ? o.assets.length
+            : Object.keys((o.rgInventory as Record<string, unknown>) ?? {}).length;
+          console.log(LOG, "inventory_xhr", { path, itemSlots: nAssets, more: lastResponseHadMoreItems });
+        } catch {
+          /* ignore log */
+        }
+      })();
+      jsonBodyTasks.push(task);
     });
 
     const canonical =
@@ -268,6 +395,24 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl: string
     lastInventoryJsonAt = Date.now();
 
     while (timeLeft() > 350) {
+      await Promise.allSettled(jsonBodyTasks);
+
+      const mergedBefore = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
+      const nBefore = mergedBefore.assets?.length ?? 0;
+
+      const fromWindow = await tryReadInventoryFromTradeWindowGlobals(page);
+      if (fromWindow && typeof fromWindow === "object" && isUsableInventoryJson(fromWindow as Record<string, unknown>)) {
+        const mergedTrial = mergeCommunityInventoryJson([...jsonChunks, fromWindow]) as { assets?: unknown[] };
+        const nTrial = mergedTrial.assets?.length ?? 0;
+        if (nTrial > nBefore) {
+          jsonChunks.push(fromWindow as Record<string, unknown>);
+          receivedInventoryJsonPayload = true;
+          lastInventoryJsonAt = Date.now();
+          lastResponseHadMoreItems = inventoryResponseHasMoreItems(fromWindow as Record<string, unknown>);
+          console.log(LOG, "inventory_from_window_globals", { nTrial });
+        }
+      }
+
       const idle = lastInventoryJsonAt > 0 ? Date.now() - lastInventoryJsonAt : 0;
       const mergedTry = mergeCommunityInventoryJson(jsonChunks) as { assets?: unknown[] };
       const n = mergedTry.assets?.length ?? 0;
