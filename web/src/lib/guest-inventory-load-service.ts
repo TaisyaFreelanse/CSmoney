@@ -1,6 +1,9 @@
 import "server-only";
 
-import { fetchGuestInventoryViaTradeOfferPuppeteer } from "@/lib/guest-inventory-puppeteer";
+import {
+  ensureGuestPuppeteerCookiesLoggedOnce,
+  fetchGuestInventoryViaTradeOfferPuppeteer,
+} from "@/lib/guest-inventory-puppeteer";
 import { runThroughSteamGuestGate } from "@/lib/guest-steam-global-gate";
 import {
   getGuestSnapshotEntry,
@@ -42,6 +45,8 @@ export type GuestInventoryLoadFlags = {
   /** Suggested client backoff: 15s when Steam pipeline busy; 15m when unstable / rate-limited. */
   retryAfterMs?: number;
   needsRefreshWarning?: boolean;
+  /** Основной источник списка: страница trade-offer (Puppeteer) или Web API. */
+  guestInventoryPrimarySource?: "trade_url" | "api";
 };
 
 export type GuestInventoryLoadResult =
@@ -182,12 +187,7 @@ type GatePuppeteerOpts = { mode: string; attempt: number; skipMinSpacing?: boole
 
 async function gatePuppeteer(tradeUrl: string, opts: GatePuppeteerOpts) {
   const skipMinSpacing = opts.skipMinSpacing === true;
-  logGuestInvPipeline("puppeteer_invoke", {
-    source: "browser",
-    mode: opts.mode,
-    attempt: opts.attempt,
-    skipMinSpacing,
-  });
+  /* puppeteer_invoke: см. guest-inventory-puppeteer (guest_inv_puppeteer). */
   const t0 = Date.now();
   const g = await runThroughSteamGuestGate(() => fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl), {
     skipMinSpacing,
@@ -215,24 +215,7 @@ async function gatePuppeteer(tradeUrl: string, opts: GatePuppeteerOpts) {
     detail: p.ok ? undefined : p.detail,
     itemCount: browserItemCount,
   });
-  if (p.ok) {
-    logGuestInvPipeline("puppeteer_success", {
-      source: "browser",
-      mode: opts.mode,
-      attempt: opts.attempt,
-      itemCount: browserItemCount ?? 0,
-      durationMs: Date.now() - t0,
-    });
-  } else {
-    logGuestInvPipeline("puppeteer_failed", {
-      source: "browser",
-      mode: opts.mode,
-      attempt: opts.attempt,
-      reason: p.reason,
-      detail: p.detail ?? null,
-      durationMs: Date.now() - t0,
-    });
-  }
+  /* puppeteer_success / puppeteer_failed: см. guest-inventory-puppeteer (guest_inv_puppeteer). */
   return { kind: "ok" as const, p, queued: g.queued };
 }
 
@@ -289,6 +272,8 @@ async function runGuestInventoryLoad(
   flags: GuestInventoryLoadFlags,
 ): Promise<GuestInventoryLoadResult> {
   const { userSteamId, tradeUrl, guestTargetSteamId, mode, bypassGuestFetchCooldown } = args;
+
+  ensureGuestPuppeteerCookiesLoggedOnce();
 
   const parsedEarly = parseTradeUrl(tradeUrl.trim());
   if (!parsedEarly) {
@@ -359,6 +344,7 @@ async function runGuestInventoryLoad(
       return { ok: false, error: g.api.error, flags };
     }
     items = g.api.items;
+    flags.guestInventoryPrimarySource = "api";
     return null;
   };
 
@@ -435,6 +421,7 @@ async function runGuestInventoryLoad(
   const p1 = g1.p;
 
   if (p1.ok) {
+    flags.guestInventoryPrimarySource = "trade_url";
     items = await supplementFromApiAfterBrowser(normalizeInventory(p1.raw, p1.steamId64));
     mark2hAfterSuccess = true;
   } else if (p1.reason === "disabled" || p1.reason === "launch_failed") {
@@ -446,7 +433,11 @@ async function runGuestInventoryLoad(
     });
     const err = await tryApiFallback(p1.reason === "launch_failed", {
       fallbackReason:
-        p1.reason === "disabled" ? "puppeteer_disabled_no_session_cookies" : "puppeteer_launch_failed",
+        p1.reason === "disabled"
+          ? p1.detail === "steam_inventory_browser_disabled"
+            ? "puppeteer_disabled_browser_flag"
+            : "puppeteer_disabled_no_cookies"
+          : "puppeteer_launch_failed",
       detail: p1.detail,
     });
     if (err) return err;
@@ -462,6 +453,7 @@ async function runGuestInventoryLoad(
     }
     const p2 = g2.p;
     if (p2.ok) {
+      flags.guestInventoryPrimarySource = "trade_url";
       items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
       mark2hAfterSuccess = true;
     } else if (p2.reason === "rate_limited") {
@@ -484,6 +476,7 @@ async function runGuestInventoryLoad(
     }
     const p2 = g2.p;
     if (p2.ok) {
+      flags.guestInventoryPrimarySource = "trade_url";
       items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
       mark2hAfterSuccess = true;
     } else if (p2.reason === "rate_limited") {
@@ -543,6 +536,7 @@ async function runGuestInventoryLoad(
       return { ok: false, error: gApi.api.error, flags };
     }
     items = gApi.api.items;
+    flags.guestInventoryPrimarySource = "api";
     mark2hAfterSuccess = true;
   }
 

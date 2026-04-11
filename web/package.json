@@ -14,7 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:puppeteer-steam": "node ./scripts/test-steam-puppeteer-inventory.mjs"
   },
   "dependencies": {
     "@csfloat/cs2-inspect-serializer": "^1.1.6",
