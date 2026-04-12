@@ -3,7 +3,7 @@
  * При сохранённой trade URL всегда грузим гостевой инвентарь по derivedSteamId из ссылки
  * (в т.ч. для аккаунта OWNER_STEAM_ID при подмене URL), иначе для владельца магазина — owner snapshot.
  */
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import {
@@ -14,8 +14,8 @@ import {
 } from "@/lib/guest-inventory-target";
 import { loadGuestInventoryForUser } from "@/lib/guest-inventory-load-service";
 import {
-  getCached,
   getGuestSnapshotEntry,
+  getOwnerCachedStaleWhileRevalidate,
   guestSteamFetchCooldownRemainingMs,
   invCacheLog,
   refreshCooldownRemainingUser,
@@ -25,6 +25,7 @@ import {
   inventoryMeGuestSoftRemainingMs,
   markInventoryMeGuestGet,
 } from "@/lib/inventory-me-soft-rate-limit";
+import { refreshOwnerSteamItemsInCache } from "@/lib/owner-steam-cache-refresh";
 import { fetchOwnerInventory, normalizeSteamId64ForCache } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
 import { resolvePricesBatch } from "@/lib/pricempire";
@@ -119,12 +120,31 @@ export async function GET() {
       nextRefreshAt: loaded.flags.nextRefreshAt ?? null,
       needsRefreshWarning: loaded.flags.needsRefreshWarning ?? false,
       shouldAutoRetry: steamUnstable && enriched.length > 0,
+      backgroundRevalidateScheduled: loaded.flags.backgroundRevalidateScheduled ?? false,
     });
   }
 
   if (isPlatformOwner) {
     const cacheKeySteamId = user.steamId;
-    let items: NormalizedItem[] | null = await getCached(cacheKeySteamId);
+    const ownerIdEnv = process.env.OWNER_STEAM_ID?.trim();
+    let items: NormalizedItem[] | null = null;
+    let ownerBackgroundRevalidateScheduled = false;
+
+    if (ownerIdEnv) {
+      const swr = await getOwnerCachedStaleWhileRevalidate(cacheKeySteamId);
+      if (swr) {
+        items = swr.items;
+        if (swr.isStale) {
+          ownerBackgroundRevalidateScheduled = true;
+          after(() => {
+            void refreshOwnerSteamItemsInCache(ownerIdEnv).catch((e) =>
+              console.warn("[inventory/me] owner stale background refresh failed:", e),
+            );
+          });
+        }
+      }
+    }
+
     if (!items) {
       const result = await fetchOwnerInventory();
       if (!result.ok) {
@@ -138,6 +158,7 @@ export async function GET() {
       items: enriched,
       count: enriched.length,
       refreshCooldownRemainingMs: await refreshCooldownRemainingUser(user.steamId),
+      backgroundRevalidateScheduled: ownerBackgroundRevalidateScheduled,
     });
   }
 

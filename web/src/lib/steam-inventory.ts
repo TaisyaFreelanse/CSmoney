@@ -11,7 +11,7 @@
 
 import https from "node:https";
 
-import { parseTradeUrl, steamId64FromPartner } from "./steam-community-url";
+import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "./steam-community-url";
 
 export {
   normalizeSteamId64ForCache,
@@ -805,6 +805,25 @@ export type OwnerInventoryPrimarySource = "trade_url" | "api" | "snapshot";
 
 export type FetchOwnerInventoryOptions = { forceRefresh?: boolean };
 
+/** Плохие прогоны owner trade-offer Puppeteer → считаем в circuit breaker (не disabled/private/куки). */
+function ownerTradeOfferPuppeteerStrikeCandidate(p: {
+  ok: boolean;
+  reason: string;
+  detail?: string;
+}): boolean {
+  if (p.ok) return false;
+  if (p.reason === "disabled" || p.reason === "launch_failed" || p.reason === "invalid_trade_url") return false;
+  if (p.reason === "private" || p.reason === "cannot_trade" || p.reason === "rate_limited") return false;
+  const d = p.detail ?? "";
+  if (d === "owner_cookie_missing_steam_login_secure" || d === "owner_cookie_session_mismatch") return false;
+  if (p.reason === "timeout") return true;
+  if (d === "partnerinventory_cs2_xhr") return true;
+  if (p.reason === "empty") return true;
+  if (p.reason === "not_available") return true;
+  if (p.reason === "unknown") return true;
+  return false;
+}
+
 /**
  * Owner store inventory from Steam (Puppeteer trade URL + API merge, or API-only).
  * By default reads existing Redis/memory snapshot if present — no browser/API round-trip.
@@ -873,10 +892,36 @@ export async function fetchOwnerInventory(
     return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
   }
 
+  const invCacheMod = await import("@/lib/inventory-cache");
+  const circuitMs = await invCacheMod.ownerPuppeteerCircuitRemainingMs(ownerSteamId);
+  if (circuitMs > 0) {
+    console.log(
+      JSON.stringify({
+        type: "owner_inv_puppeteer",
+        event: "circuit_open_skip_browser",
+        remaining_ms: circuitMs,
+        ownerSteamId: normalizeSteamId64ForCache(ownerSteamId),
+        ts: Date.now(),
+      }),
+    );
+    const api = await fetchOwnerApiNormalized();
+    if (!api.ok) return api;
+    return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
+  }
+
   const { runThroughSteamGuestGate } = await import("@/lib/guest-steam-global-gate");
   const { fetchOwnerInventoryViaTradeOfferPuppeteer } = await import("@/lib/owner-inventory-puppeteer");
   const { ensureGuestPuppeteerCookiesLoggedOnce } = await import("@/lib/guest-inventory-puppeteer");
   ensureGuestPuppeteerCookiesLoggedOnce();
+
+  const maybeStrikeOwnerPuppeteer = async (r: {
+    ok: boolean;
+    reason: string;
+    detail?: string;
+  }) => {
+    if (!ownerTradeOfferPuppeteerStrikeCandidate(r)) return;
+    await invCacheMod.ownerPuppeteerCircuitRecordStrike(ownerSteamId);
+  };
 
   const apiAfterBrowser = async (skipMinSpacing: boolean) => {
     const g = await runThroughSteamGuestGate(() => fetchOwnerApiNormalized(), { skipMinSpacing });
@@ -888,6 +933,7 @@ export async function fetchOwnerInventory(
   };
 
   const finishTradeUrlSuccess = async (raw: unknown) => {
+    await invCacheMod.ownerPuppeteerCircuitRecordSuccess(ownerSteamId);
     const browserItems = normalizeInventory(raw, ownerSteamId);
     const api = await apiAfterBrowser(true);
     const items = api.ok ? mergeOwnerInventoriesPreferBrowser(browserItems, api.items) : browserItems;
@@ -906,6 +952,8 @@ export async function fetchOwnerInventory(
     return finishTradeUrlSuccess(p.raw);
   }
 
+  await maybeStrikeOwnerPuppeteer(p);
+
   if (p.reason === "disabled" || p.reason === "launch_failed") {
     const api = await fetchOwnerApiNormalized();
     if (!api.ok) return api;
@@ -919,6 +967,9 @@ export async function fetchOwnerInventory(
     if (g2.ok && g2.value.ok) {
       return finishTradeUrlSuccess(g2.value.raw);
     }
+    if (g2.ok && !g2.value.ok) {
+      await maybeStrikeOwnerPuppeteer(g2.value);
+    }
     const api = await apiAfterBrowser(false);
     if (!api.ok) return api;
     return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
@@ -928,6 +979,9 @@ export async function fetchOwnerInventory(
     const g2 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl));
     if (g2.ok && g2.value.ok) {
       return finishTradeUrlSuccess(g2.value.raw);
+    }
+    if (g2.ok && !g2.value.ok) {
+      await maybeStrikeOwnerPuppeteer(g2.value);
     }
     const api = await apiAfterBrowser(false);
     if (!api.ok) return api;

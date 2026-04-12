@@ -5,6 +5,7 @@ import path from "node:path";
 
 import type { Browser, Page, PuppeteerNode } from "puppeteer";
 
+import { recordTradeOfferPuppeteerOutcome } from "@/lib/puppeteer-trade-offer-metrics";
 import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
 
 const LOG = "[guest-inv-puppeteer]";
@@ -218,6 +219,38 @@ function classifyPageText(pageText: string): "not_available" | "private" | "cann
   return null;
 }
 
+/** Heuristics: logged-in trade page blocked by Guard / email / login wall (no partner XHR). */
+async function detectTradeGuardOrConfirmation(page: Page): Promise<{ likelyBlocked: boolean; hints: string[] }> {
+  return page
+    .evaluate(() => {
+      const hints: string[] = [];
+      const t = (document.body?.innerText ?? "").toLowerCase();
+      const html = (document.documentElement?.innerHTML ?? "").toLowerCase();
+      if (t.includes("steam guard") || html.includes("steam_guard")) hints.push("steam_guard");
+      if (t.includes("confirm on your mobile") || t.includes("mobile authenticator")) hints.push("mobile_confirm");
+      if (t.includes("verify your email") || t.includes("email verification")) hints.push("email_verify");
+      if (t.includes("javascript is disabled") || t.includes("javascript must be enabled")) hints.push("js_disabled_msg");
+      if (document.querySelector("#loginContent, .login_modal, .newlogindialog_ModalContainer")) hints.push("login_modal_dom");
+      return { likelyBlocked: hints.length > 0, hints };
+    })
+    .catch(() => ({ likelyBlocked: false, hints: [] }));
+}
+
+function trySteamId64FromSteamLoginSecureCookie(cookieHeader: string): string | null {
+  const pairs = parseCookieHeader(cookieHeader);
+  for (const p of pairs) {
+    if (p.name.toLowerCase() !== "steamloginsecure") continue;
+    try {
+      const dec = decodeURIComponent(p.value);
+      const first = dec.includes("||") ? dec.split("||")[0]!.trim() : dec.split("|")[0]!.trim();
+      if (first && /^\d+$/.test(first)) return normalizeSteamId64ForCache(first);
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
 async function classifyDom(page: Page): Promise<{
   profilePrivate: boolean;
   tradeBlocked: boolean;
@@ -319,6 +352,11 @@ async function selectPartnerCs2Inventory(page: Page): Promise<PartnerCs2SelectRe
         if (typeof w.TradePageSelectInventory === "function" && w.UserThem) {
           w.TradePageSelectInventory(w.UserThem, appid, ctxid);
           out.tradePageSelectInventoryCalled = true;
+          try {
+            w.TradePageSelectInventory(w.UserThem, appid, ctxid);
+          } catch {
+            /* second nudge for economy_trade.js race */
+          }
         }
       } catch (e) {
         out.errors.push(`TradePageSelectInventory: ${e}`);
@@ -417,10 +455,17 @@ function isPartnerTradeOfferInventoryUrl(url: string, expectedPartnerSteam64: st
   }
 }
 
+/**
+ * CS2 partner inventory XHR on trade-offer page. Steam often sends `appid=730` first and may omit `contextid`
+ * until after context selection — requiring both used to yield 0 XHR (unlock never counted).
+ */
 function partnerTradeOfferUrlIsCs2Context(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.searchParams.get("appid") === String(TARGET_APPID) && u.searchParams.get("contextid") === String(TARGET_CONTEXTID);
+    if (u.searchParams.get("appid") !== String(TARGET_APPID)) return false;
+    const ctx = u.searchParams.get("contextid");
+    if (ctx == null || ctx === "") return true;
+    return ctx === String(TARGET_CONTEXTID);
   } catch {
     return false;
   }
@@ -552,7 +597,7 @@ async function tryReadPartnerInventoryFromTradeWindowGlobals(
  * Trade-offer page: ждём UI → выбор CS2 (730) + context 2 у партнёра → XHR partnerinventory,
  * затем пагинация и merge только партнёрских ответов (фильтр по SteamID из trade URL).
  */
-export async function fetchGuestInventoryViaTradeOfferPuppeteer(
+async function runTradeOfferPuppeteerInventory(
   tradeUrl: string,
   options?: TradeOfferPuppeteerOptions,
 ): Promise<PuppeteerGuestInventoryResult> {
@@ -572,6 +617,46 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(
   const steamId64 = steamId64FromPartner(parsed.partner);
   const canonical =
     tradeUrl.trim().startsWith("http") ? tradeUrl.trim() : `https://${tradeUrl.trim()}`;
+
+  const cookieHeader = process.env.STEAM_COMMUNITY_COOKIES!.trim();
+  const cookiePairs = parseCookieHeader(cookieHeader);
+  if (cookiePairs.length === 0) {
+    logTradeOfferPuppeteer(lp, "puppeteer_disabled_no_cookies", {
+      reason: "no_steam_community_cookies",
+      detail: "no_cookie_pairs",
+    });
+    return { ok: false, reason: "disabled", detail: "no_cookie_pairs" };
+  }
+
+  if (lp === "owner") {
+    const ownerEnv = process.env.OWNER_STEAM_ID?.trim();
+    const fromCookie = trySteamId64FromSteamLoginSecureCookie(cookieHeader);
+    const sessionMatchesOwner =
+      fromCookie && ownerEnv
+        ? normalizeSteamId64ForCache(fromCookie) === normalizeSteamId64ForCache(ownerEnv)
+        : null;
+    if (ownerEnv) {
+      if (!fromCookie || sessionMatchesOwner === false) {
+        const detail = !fromCookie
+          ? "owner_cookie_missing_steam_login_secure"
+          : "owner_cookie_session_mismatch";
+        console.error(
+          JSON.stringify({
+            type: "owner_inv_puppeteer_error",
+            event: "owner_cookie_session_invalid",
+            detail,
+            steamFromCookie: fromCookie ?? null,
+            ownerSteamIdNorm: normalizeSteamId64ForCache(ownerEnv),
+            partnerFromTradeUrl: steamId64,
+            sessionMatchesOwner,
+            ts: Date.now(),
+          }),
+        );
+        logTradeOfferPuppeteer(lp, "owner_cookie_session_invalid", { detail, steamId64 });
+        return { ok: false, reason: "disabled", detail };
+      }
+    }
+  }
 
   let puppeteerMod: typeof import("puppeteer") | null = null;
   try {
@@ -610,11 +695,18 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(
     return { ok: false, reason: "launch_failed", detail: "puppeteer_chrome_missing" };
   }
 
-  const cookieHeader = process.env.STEAM_COMMUNITY_COOKIES!.trim();
-  const cookiePairs = parseCookieHeader(cookieHeader);
-  if (cookiePairs.length === 0) {
-    logTradeOfferPuppeteer(lp,"puppeteer_disabled_no_cookies", { reason: "no_steam_community_cookies", detail: "no_cookie_pairs" });
-    return { ok: false, reason: "disabled", detail: "no_cookie_pairs" };
+  if (lp === "owner") {
+    const fromCookie = trySteamId64FromSteamLoginSecureCookie(cookieHeader);
+    const ownerEnv = process.env.OWNER_STEAM_ID?.trim();
+    logTradeOfferPuppeteer(lp, "owner_cookie_session_check", {
+      steamFromCookie: fromCookie ?? null,
+      ownerSteamIdNorm: ownerEnv ? normalizeSteamId64ForCache(ownerEnv) : null,
+      partnerFromTradeUrl: steamId64,
+      sessionMatchesOwner:
+        fromCookie && ownerEnv
+          ? normalizeSteamId64ForCache(fromCookie) === normalizeSteamId64ForCache(ownerEnv)
+          : true,
+    });
   }
 
   logTradeOfferPuppeteer(lp, lp === "owner" ? "puppeteer_owner_invoke" : "puppeteer_invoke", {
@@ -768,6 +860,15 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(
     await waitForTradeUi(page, Math.min(TRADE_UI_WAIT_MS, Math.max(4000, timeLeft() - 3000)));
     logTradeOfferPuppeteer(lp,"trade_ui_ready", { steamId64 });
 
+    const guardInitial = await detectTradeGuardOrConfirmation(page);
+    if (guardInitial.likelyBlocked) {
+      logTradeOfferPuppeteer(lp, "trade_guard_or_confirmation_hint", {
+        steamId64,
+        hints: guardInitial.hints,
+        phase: "after_trade_ui",
+      });
+    }
+
     try {
       await page.click("#trade_theirs .trade_item_box, #trade_theirs").catch(() => {});
     } catch {
@@ -801,24 +902,70 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(
       steamId64,
     });
 
-    let xhrWaitAccum = 0;
-    for (let unlockAttempt = 1; unlockAttempt <= 2; unlockAttempt++) {
-      if (unlockAttempt === 2) {
-        logTradeOfferPuppeteer(lp,"partner_inventory_context_retry", { steamId64, unlockAttempt: 2 });
-        await selectPartnerCs2Inventory(page);
-      }
-      const xhrWaitStart = Date.now();
-      const xhrDeadline = Math.min(Date.now() + PARTNER_CS2_XHR_WAIT_MS, deadline - 800);
-      while (Date.now() < xhrDeadline && timeLeft() > 400) {
-        await Promise.allSettled(jsonBodyTasks);
-        if (partnerCs2TradeOfferXhrSeen) {
-          if (partnerCs2TradeOfferMaxItems > 0) break;
-          if (partnerCs2EmptyGraceDeadline > 0 && Date.now() >= partnerCs2EmptyGraceDeadline) break;
+    await sleepMs(250);
+    await selectPartnerCs2Inventory(page);
+
+    const waitPartnerCs2Unlock = async (retryLabel: string) => {
+      let xhrWaitAccumLocal = 0;
+      for (let unlockAttempt = 1; unlockAttempt <= 2; unlockAttempt++) {
+        if (unlockAttempt === 2) {
+          logTradeOfferPuppeteer(lp, "partner_inventory_context_retry", {
+            steamId64,
+            unlockAttempt: 2,
+            retry_label: retryLabel,
+          });
+          await selectPartnerCs2Inventory(page);
         }
-        await sleepMs(200);
+        const xhrWaitStart = Date.now();
+        const xhrDeadline = Math.min(Date.now() + PARTNER_CS2_XHR_WAIT_MS, deadline - 800);
+        while (Date.now() < xhrDeadline && timeLeft() > 400) {
+          await Promise.allSettled(jsonBodyTasks);
+          if (partnerCs2TradeOfferXhrSeen) {
+            if (partnerCs2TradeOfferMaxItems > 0) break;
+            if (partnerCs2EmptyGraceDeadline > 0 && Date.now() >= partnerCs2EmptyGraceDeadline) break;
+          }
+          await sleepMs(200);
+        }
+        xhrWaitAccumLocal += Date.now() - xhrWaitStart;
+        if (partnerCs2TradeOfferXhrSeen) break;
       }
-      xhrWaitAccum += Date.now() - xhrWaitStart;
-      if (partnerCs2TradeOfferXhrSeen) break;
+      return xhrWaitAccumLocal;
+    };
+
+    let xhrWaitAccum = await waitPartnerCs2Unlock("primary");
+
+    if (!partnerCs2TradeOfferXhrSeen && timeLeft() > 8000) {
+      logTradeOfferPuppeteer(lp, "partner_inventory_page_reload_retry", { steamId64 });
+      jsonChunks.length = 0;
+      receivedInventoryJsonPayload = false;
+      lastResponseHadMoreItems = false;
+      partnerCs2TradeOfferXhrSeen = false;
+      partnerCs2TradeOfferMaxItems = 0;
+      partnerCs2EmptyGraceDeadline = 0;
+      partnerInventoryXhrCount = 0;
+      maxSingleXhrItems = 0;
+      hadPositivePartnerXhr = false;
+      usedWindowFallback = false;
+      lastInventoryJsonAt = Date.now();
+
+      const reloadTo = Math.min(GOTO_TIMEOUT_MS, Math.max(5000, timeLeft() - 2500));
+      await page.reload({ waitUntil: "domcontentloaded", timeout: reloadTo }).catch((e) => {
+        console.warn(LOG, "page.reload failed", e);
+      });
+      await waitForTradeUi(page, Math.min(TRADE_UI_WAIT_MS, Math.max(4000, timeLeft() - 4000)));
+      const guardReload = await detectTradeGuardOrConfirmation(page);
+      if (guardReload.likelyBlocked) {
+        logTradeOfferPuppeteer(lp, "trade_guard_or_confirmation_hint", {
+          steamId64,
+          hints: guardReload.hints,
+          phase: "after_reload",
+        });
+      }
+      await page.click("#trade_theirs .trade_item_box, #trade_theirs").catch(() => {});
+      await selectPartnerCs2Inventory(page);
+      await sleepMs(350);
+      await selectPartnerCs2Inventory(page);
+      xhrWaitAccum += await waitPartnerCs2Unlock("after_reload");
     }
 
     logTradeOfferPuppeteer(lp,"partner_inventory_xhr_wait_done", {
@@ -1065,4 +1212,14 @@ export async function fetchGuestInventoryViaTradeOfferPuppeteer(
       await browser.close().catch(() => {});
     }
   }
+}
+
+export async function fetchGuestInventoryViaTradeOfferPuppeteer(
+  tradeUrl: string,
+  options?: TradeOfferPuppeteerOptions,
+): Promise<PuppeteerGuestInventoryResult> {
+  const lp: TradeOfferPuppeteerLogProfile = options?.logProfile ?? "guest";
+  const result = await runTradeOfferPuppeteerInventory(tradeUrl, options);
+  recordTradeOfferPuppeteerOutcome(lp, result.ok);
+  return result;
 }

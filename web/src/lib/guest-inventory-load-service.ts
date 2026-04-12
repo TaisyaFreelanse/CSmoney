@@ -10,6 +10,7 @@ import {
   markUserRefreshed,
   markUserShortGuestCooldown,
   guestSteamFetchCooldownRemainingMs,
+  OWNER_FRESH_TTL_MS,
   setCache,
 } from "@/lib/inventory-cache";
 import {
@@ -32,6 +33,10 @@ function mergeGuestInventoriesPreferBrowser(browserItems: NormalizedItem[], apiI
 const STALE_WARNING_MS = 24 * 60 * 60 * 1000;
 const SHORT_UNSTABLE_COOLDOWN_MS = 15 * 60 * 1000;
 const RETRY_STEAM_BUSY_MS = 15_000;
+/** Не чаще одного фонового refresh на snapshotSteamId за интервал (защита от thundering herd). */
+const GUEST_BACKGROUND_REFRESH_MIN_GAP_MS = 120_000;
+
+const guestBackgroundRefreshLastAt = new Map<string, number>();
 
 export type GuestInventoryLoadFlags = {
   steamUnstable?: boolean;
@@ -47,6 +52,8 @@ export type GuestInventoryLoadFlags = {
   needsRefreshWarning?: boolean;
   /** Основной источник списка: страница trade-offer (Puppeteer) или Web API. */
   guestInventoryPrimarySource?: "trade_url" | "api";
+  /** Снимок устарел по TTL — запланирован фоновый refresh (ответ не ждёт Steam). */
+  backgroundRevalidateScheduled?: boolean;
 };
 
 export type GuestInventoryLoadResult =
@@ -301,12 +308,40 @@ async function runGuestInventoryLoad(
   /** GET с уже сохранённым снимком: не трогаем Puppeteer/Web API (избегаем задержки при каждом заходе / смене языка). */
   if (mode === "get" && snap) {
     flags.skipSteamFetch = true;
+    const ageMs = Date.now() - snap.fetchedAt;
     logGuestInvPipeline("cache_hit_skip_steam", {
       source: "guest_snapshot",
       mode,
       itemCount: snap.items.length,
-      ageMs: Date.now() - snap.fetchedAt,
+      ageMs,
     });
+    if (ageMs > OWNER_FRESH_TTL_MS) {
+      const now = Date.now();
+      const last = guestBackgroundRefreshLastAt.get(snapshotSteamId) ?? 0;
+      if (now - last >= GUEST_BACKGROUND_REFRESH_MIN_GAP_MS) {
+        guestBackgroundRefreshLastAt.set(snapshotSteamId, now);
+        flags.backgroundRevalidateScheduled = true;
+        logGuestInvPipeline("cache_stale_background_refresh_scheduled", {
+          source: "guest_snapshot",
+          ageMs,
+          ttlMs: OWNER_FRESH_TTL_MS,
+          snapshotSteamId,
+        });
+        void loadGuestInventoryForUser({
+          userSteamId,
+          tradeUrl,
+          guestTargetSteamId,
+          mode: "force_refresh",
+          bypassGuestFetchCooldown: true,
+        }).catch((e) => console.error("[guest-inv-load] background refresh failed", e));
+      } else {
+        logGuestInvPipeline("cache_stale_background_refresh_skipped_debounce", {
+          source: "guest_snapshot",
+          ageMs,
+          gapMs: GUEST_BACKGROUND_REFRESH_MIN_GAP_MS,
+        });
+      }
+    }
     return { ok: true, items: snap.items, flags };
   }
 

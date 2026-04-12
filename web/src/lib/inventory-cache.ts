@@ -21,6 +21,25 @@ const RL_OWNER_PREFIX = "csmoney:inv:rl:owner:";
 const RL_USER_PREFIX = "csmoney:inv:rl:user:";
 /** Extra cooldown after Steam “unstable” (browser double-fail); shorter than user refresh window. */
 const RL_USER_SHORT_PREFIX = "csmoney:inv:rl:userShort:";
+/** Owner trade-offer Puppeteer: consecutive bad runs → временно не запускаем браузер (только API). */
+const PP_OWNER_STRIKE_PREFIX = "csmoney:inv:pp_owner_strike:";
+const PP_OWNER_OPEN_PREFIX = "csmoney:inv:pp_owner_open:";
+
+const OWNER_PUPPETEER_CIRCUIT_STRIKES = Math.max(
+  2,
+  Math.min(10, parseInt(process.env.OWNER_PUPPETEER_CIRCUIT_STRIKES ?? "3", 10) || 3),
+);
+const OWNER_PUPPETEER_CIRCUIT_OPEN_MS = Math.max(
+  5 * 60 * 1000,
+  Math.min(
+    60 * 60 * 1000,
+    parseInt(process.env.OWNER_PUPPETEER_CIRCUIT_OPEN_MS ?? "", 10) || 20 * 60 * 1000,
+  ),
+);
+const OWNER_PUPPETEER_STRIKE_TTL_MS = 45 * 60 * 1000;
+
+const ownerPuppeteerStrikeMem = new Map<string, number>();
+const ownerPuppeteerOpenUntilMem = new Map<string, number>();
 
 /** 7d TTL on snapshot keys (owner entries are refreshed by job; guests expire logically at 3m). */
 const SNAPSHOT_MAX_TTL_SEC = 7 * 24 * 3600;
@@ -329,4 +348,88 @@ export async function markUserRefreshed(steamId: string) {
     }
   }
   lastUserRefresh.set(id, Date.now());
+}
+
+// ---------------------------------------------------------------------------
+// Owner Puppeteer circuit breaker (timeout / guard / 0 XHR streaks)
+// ---------------------------------------------------------------------------
+
+export async function ownerPuppeteerCircuitRemainingMs(steamId: string): Promise<number> {
+  const id = normalizeSteamId64ForCache(steamId);
+  const r = getRedis();
+  if (r) {
+    try {
+      const pttl = await r.pttl(`${PP_OWNER_OPEN_PREFIX}${id}`);
+      if (pttl > 0) return pttl;
+    } catch (e) {
+      console.warn("[inventory-cache] redis PTTL owner puppeteer circuit failed", e);
+    }
+  }
+  const until = ownerPuppeteerOpenUntilMem.get(id) ?? 0;
+  return Math.max(0, until - Date.now());
+}
+
+export async function ownerPuppeteerCircuitRecordSuccess(steamId: string): Promise<void> {
+  const id = normalizeSteamId64ForCache(steamId);
+  const r = getRedis();
+  if (r) {
+    try {
+      await r.del(`${PP_OWNER_STRIKE_PREFIX}${id}`);
+    } catch (e) {
+      console.warn("[inventory-cache] redis DEL owner puppeteer strikes failed", e);
+    }
+  }
+  ownerPuppeteerStrikeMem.delete(id);
+}
+
+/** Один «плохой» прогон owner Puppeteer (timeout / 0 XHR / guard и т.д.). */
+export async function ownerPuppeteerCircuitRecordStrike(steamId: string): Promise<void> {
+  const id = normalizeSteamId64ForCache(steamId);
+  const r = getRedis();
+  if (r) {
+    try {
+      const n = await r.incr(`${PP_OWNER_STRIKE_PREFIX}${id}`);
+      if (n === 1) {
+        await r.pexpire(`${PP_OWNER_STRIKE_PREFIX}${id}`, OWNER_PUPPETEER_STRIKE_TTL_MS);
+      }
+      if (n >= OWNER_PUPPETEER_CIRCUIT_STRIKES) {
+        await r.set(`${PP_OWNER_OPEN_PREFIX}${id}`, "1", "PX", OWNER_PUPPETEER_CIRCUIT_OPEN_MS);
+        await r.del(`${PP_OWNER_STRIKE_PREFIX}${id}`);
+        invCacheLog(
+          `owner-puppeteer CIRCUIT_OPEN steamId=${id} strikes=${OWNER_PUPPETEER_CIRCUIT_STRIKES} ttlMs=${OWNER_PUPPETEER_CIRCUIT_OPEN_MS}`,
+        );
+        console.error(
+          JSON.stringify({
+            type: "owner_inv_puppeteer_error",
+            event: "circuit_opened",
+            ownerSteamId: id,
+            strikes: OWNER_PUPPETEER_CIRCUIT_STRIKES,
+            open_ms: OWNER_PUPPETEER_CIRCUIT_OPEN_MS,
+            ts: Date.now(),
+          }),
+        );
+      }
+    } catch (e) {
+      console.warn("[inventory-cache] redis owner puppeteer strike failed", e);
+    }
+    return;
+  }
+  const next = (ownerPuppeteerStrikeMem.get(id) ?? 0) + 1;
+  ownerPuppeteerStrikeMem.set(id, next);
+  if (next >= OWNER_PUPPETEER_CIRCUIT_STRIKES) {
+    ownerPuppeteerOpenUntilMem.set(id, Date.now() + OWNER_PUPPETEER_CIRCUIT_OPEN_MS);
+    ownerPuppeteerStrikeMem.delete(id);
+    invCacheLog(`owner-puppeteer CIRCUIT_OPEN steamId=${id} memory ttlMs=${OWNER_PUPPETEER_CIRCUIT_OPEN_MS}`);
+    console.error(
+      JSON.stringify({
+        type: "owner_inv_puppeteer_error",
+        event: "circuit_opened",
+        ownerSteamId: id,
+        strikes: OWNER_PUPPETEER_CIRCUIT_STRIKES,
+        open_ms: OWNER_PUPPETEER_CIRCUIT_OPEN_MS,
+        store: "memory",
+        ts: Date.now(),
+      }),
+    );
+  }
 }
