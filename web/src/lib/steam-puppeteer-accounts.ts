@@ -165,8 +165,19 @@ export function resolveSteamPuppeteerUserDataDir(raw: string): string {
   return normalizeUserDataDirInput(raw, resolveProfilesBaseDir());
 }
 
+/**
+ * When true: ignore `cookies` in JSON, ignore `STEAM_COMMUNITY_COOKIES`, and never use cookie-based Puppeteer.
+ * Set on Render when using persistent Chromium profiles only (`userDataDir`).
+ */
+export function isSteamPuppeteerCookiesDisabled(): boolean {
+  const a = process.env.STEAM_PUPPETEER_COOKIES_DISABLED?.trim().toLowerCase();
+  const b = process.env.STEAM_PUPPETEER_PROFILES_ONLY?.trim().toLowerCase();
+  return a === "1" || a === "true" || a === "yes" || b === "1" || b === "true" || b === "yes";
+}
+
 function parseAccountsFromEnv(): SteamPuppeteerAccount[] {
   const profilesBase = resolveProfilesBaseDir();
+  const noCookies = isSteamPuppeteerCookiesDisabled();
 
   const rawJson = process.env.STEAM_PUPPETEER_ACCOUNTS_JSON?.trim();
   if (rawJson) {
@@ -178,7 +189,8 @@ function parseAccountsFromEnv(): SteamPuppeteerAccount[] {
         const row = arr[i];
         if (!row || typeof row !== "object") continue;
         const o = row as Record<string, unknown>;
-        const cookies = typeof o.cookies === "string" ? o.cookies.trim() : "";
+        const cookiesRaw = typeof o.cookies === "string" ? o.cookies.trim() : "";
+        const cookies = noCookies ? "" : cookiesRaw;
         const userDataDirRaw = typeof o.userDataDir === "string" ? o.userDataDir.trim() : "";
         let userDataDir: string | undefined;
         if (userDataDirRaw) {
@@ -203,13 +215,30 @@ function parseAccountsFromEnv(): SteamPuppeteerAccount[] {
           ? normalizeSteamId64ForCache(explicit)
           : fromCookie ?? accountId ?? `acc_${i}`;
 
-        if (!userDataDir && !cookies) continue;
+        if (userDataDir) {
+          const label = typeof o.label === "string" ? o.label : undefined;
+          out.push({
+            laneId,
+            userDataDir,
+            ...(accountId ? { accountId } : {}),
+            label,
+          });
+          continue;
+        }
+
+        if (noCookies && cookiesRaw) {
+          console.warn(
+            "[steam-puppeteer-accounts] skipping cookie-only account (STEAM_PUPPETEER_COOKIES_DISABLED):",
+            accountId ?? laneId,
+          );
+        }
+
+        if (!cookies) continue;
 
         const label = typeof o.label === "string" ? o.label : undefined;
         out.push({
           laneId,
-          ...(cookies ? { cookies } : {}),
-          ...(userDataDir ? { userDataDir } : {}),
+          cookies,
           ...(accountId ? { accountId } : {}),
           label,
         });
@@ -219,6 +248,8 @@ function parseAccountsFromEnv(): SteamPuppeteerAccount[] {
       console.warn("[steam-puppeteer-accounts] STEAM_PUPPETEER_ACCOUNTS_JSON parse failed", e);
     }
   }
+
+  if (noCookies) return [];
 
   const single = process.env.STEAM_COMMUNITY_COOKIES?.trim();
   if (!single) return [];
@@ -352,13 +383,14 @@ export function guestPuppeteerProfilesBaseDir(): string {
 }
 
 /**
- * Owner shop worker: `OWNER_USER_DATA_DIR`, or JSON entry with `"owner": true`, else `STEAM_COMMUNITY_COOKIES`.
+ * Owner shop worker: `OWNER_USER_DATA_DIR`, or JSON entry with `"owner": true`, else (if cookies allowed) `STEAM_COMMUNITY_COOKIES`.
  * Lane id = normalized OWNER_STEAM_ID (stable gate key).
  */
 export function resolveOwnerPuppeteerAccount(): SteamPuppeteerAccount | null {
   const ownerId = process.env.OWNER_STEAM_ID?.trim();
   if (!ownerId) return null;
   const norm = normalizeSteamId64ForCache(ownerId);
+  const noCookies = isSteamPuppeteerCookiesDisabled();
 
   const dirEnv = process.env.OWNER_USER_DATA_DIR?.trim();
   if (dirEnv) {
@@ -377,7 +409,8 @@ export function resolveOwnerPuppeteerAccount(): SteamPuppeteerAccount | null {
           if (!row || typeof row !== "object") continue;
           const o = row as Record<string, unknown>;
           if (o.owner !== true) continue;
-          const cookies = typeof o.cookies === "string" ? o.cookies.trim() : "";
+          const cookiesRaw = typeof o.cookies === "string" ? o.cookies.trim() : "";
+          const cookies = noCookies ? "" : cookiesRaw;
           const userDataDirRaw = typeof o.userDataDir === "string" ? o.userDataDir.trim() : "";
           let userDataDir: string | undefined;
           if (userDataDirRaw) {
@@ -385,11 +418,13 @@ export function resolveOwnerPuppeteerAccount(): SteamPuppeteerAccount | null {
             ensureUserDataDirReady(userDataDir);
           }
           const accountId = typeof o.id === "string" ? o.id.trim() : "owner";
-          if (!userDataDir && !cookies) continue;
+          if (userDataDir) {
+            return { laneId: norm, userDataDir, accountId, label: "owner" };
+          }
+          if (!cookies) continue;
           return {
             laneId: norm,
-            ...(cookies ? { cookies } : {}),
-            ...(userDataDir ? { userDataDir } : {}),
+            cookies,
             accountId,
             label: "owner",
           };
@@ -399,6 +434,8 @@ export function resolveOwnerPuppeteerAccount(): SteamPuppeteerAccount | null {
       /* ignore */
     }
   }
+
+  if (noCookies) return null;
 
   const cookies = process.env.STEAM_COMMUNITY_COOKIES?.trim();
   if (cookies) {
@@ -433,6 +470,7 @@ export function logSteamProfilesStorageHint(): void {
     JSON.stringify({
       type: "steam_profiles_storage",
       profilesBaseDir: base,
+      cookies_mode_disabled: isSteamPuppeteerCookiesDisabled(),
       onRender,
       explicitProfilesDir: explicit,
       hint: suspicious

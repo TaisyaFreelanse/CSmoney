@@ -8,6 +8,7 @@ import type { Browser, Page, PuppeteerNode } from "puppeteer";
 import { recordTradeOfferPuppeteerOutcome } from "@/lib/puppeteer-trade-offer-metrics";
 import {
   guestPuppeteerAccountCount,
+  isSteamPuppeteerCookiesDisabled,
   logSteamProfilesStorageHint,
   resolveSteamPuppeteerUserDataDir,
 } from "@/lib/steam-puppeteer-accounts";
@@ -94,13 +95,22 @@ export type PuppeteerGuestInventoryResult =
       detail?: string;
     };
 
-type CookiesDisabledReason = "no_steam_community_cookies" | "steam_inventory_browser_disabled";
+type CookiesDisabledReason =
+  | "no_steam_community_cookies"
+  | "steam_inventory_browser_disabled"
+  | "steam_puppeteer_profiles_only";
 
 function cookiesDisabledReason(): CookiesDisabledReason | null {
+  if (process.env.STEAM_INVENTORY_BROWSER === "0") return "steam_inventory_browser_disabled";
+  if (isSteamPuppeteerCookiesDisabled()) return "steam_puppeteer_profiles_only";
   const v = process.env.STEAM_COMMUNITY_COOKIES?.trim();
   if (!v) return "no_steam_community_cookies";
-  if (process.env.STEAM_INVENTORY_BROWSER === "0") return "steam_inventory_browser_disabled";
   return null;
+}
+
+/** Legacy env cookie header would be used for Puppeteer session (not applicable in profiles-only mode). */
+function legacyCookieEnvWouldBeUsed(): boolean {
+  return Boolean(process.env.STEAM_COMMUNITY_COOKIES?.trim());
 }
 
 function cookiesEnabled(): boolean {
@@ -114,6 +124,8 @@ export function ensureGuestPuppeteerCookiesLoggedOnce(): void {
   logSteamProfilesStorageHint();
   logTradeOfferPuppeteer("guest", "puppeteer_cookies_present", {
     present: cookiesEnabled(),
+    profiles_only: isSteamPuppeteerCookiesDisabled(),
+    steam_community_cookies_env_set: legacyCookieEnvWouldBeUsed(),
     accounts_from_json: guestPuppeteerAccountCount(),
   });
 }
@@ -136,7 +148,8 @@ export type GuestPuppeteerSessionResolve =
   | { ok: false; reason: CookiesDisabledReason };
 
 /**
- * Resolves cookies **or** persistent userDataDir. Global kill-switch STEAM_INVENTORY_BROWSER=0 still applies.
+ * Resolves persistent userDataDir (preferred) or cookie header. When {@link isSteamPuppeteerCookiesDisabled},
+ * only profile mode is allowed — no automatic fallback to cookies.
  */
 export function resolveGuestPuppeteerSession(options?: TradeOfferPuppeteerOptions): GuestPuppeteerSessionResolve {
   if (process.env.STEAM_INVENTORY_BROWSER === "0") {
@@ -151,6 +164,9 @@ export function resolveGuestPuppeteerSession(options?: TradeOfferPuppeteerOption
       userDataDir,
       accountId: options?.accountId,
     };
+  }
+  if (isSteamPuppeteerCookiesDisabled()) {
+    return { ok: false, reason: "steam_puppeteer_profiles_only" };
   }
   const override = options?.steamCommunityCookies?.trim();
   const fromEnv = process.env.STEAM_COMMUNITY_COOKIES?.trim();

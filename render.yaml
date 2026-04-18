@@ -73,6 +73,9 @@ services:
       # Chromium userDataDir root — must point at a Render persistent disk mount (e.g. /mount/profiles).
       - key: STEAM_PUPPETEER_PROFILES_DIR
         sync: false
+      # 1 = only userDataDir sessions; remove STEAM_COMMUNITY_COOKIES and omit "cookies" from STEAM_PUPPETEER_ACCOUNTS_JSON.
+      - key: STEAM_PUPPETEER_COOKIES_DISABLED
+        sync: false
       - key: OWNER_USER_DATA_DIR
         sync: false
 
