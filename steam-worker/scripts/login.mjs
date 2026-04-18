@@ -6,6 +6,11 @@
  */
 import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import {
+  authenticatePuppeteerProxy,
+  puppeteerChromeArgs,
+  puppeteerHeadless,
+} from "../src/utils/puppeteerProxy.js";
 
 const arg = process.argv[2]?.trim();
 if (!arg) {
@@ -48,8 +53,6 @@ try {
   process.exit(1);
 }
 
-const headless = process.env.STEAM_WORKER_HEADLESS === "1" || process.env.STEAM_WORKER_HEADLESS === "true";
-
 async function main() {
   const puppeteer = await import("puppeteer");
   const pp = puppeteer.default ?? puppeteer;
@@ -66,6 +69,7 @@ async function main() {
     process.exit(1);
   }
 
+  const headless = puppeteerHeadless();
   console.log(
     JSON.stringify({
       type: "steam_worker_login_script",
@@ -78,10 +82,11 @@ async function main() {
     headless,
     userDataDir,
     ...(executablePath ? { executablePath } : {}),
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    args: puppeteerChromeArgs(["--disable-dev-shm-usage"]),
   });
 
   const page = await browser.newPage();
+  await authenticatePuppeteerProxy(page);
   await page.goto("https://steamcommunity.com/login/home/?goto=", {
     waitUntil: "domcontentloaded",
     timeout: 120_000,

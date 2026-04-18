@@ -7,6 +7,11 @@ import {
 import { normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson } from "../utils/logger.js";
 import { runWithTimeout } from "../utils/runWithTimeout.js";
+import {
+  authenticatePuppeteerProxy,
+  puppeteerChromeArgs,
+  puppeteerHeadless,
+} from "../utils/puppeteerProxy.js";
 
 const TARGET_APPID = 730;
 const TARGET_CONTEXTID = 2;
@@ -177,7 +182,6 @@ export async function fetchTradeInventory(opts) {
     maxBrowserMs - 5000,
   );
 
-  const headless = process.env.STEAM_WORKER_HEADLESS === "1" || process.env.STEAM_WORKER_HEADLESS === "true";
   const executablePath = process.env.PUPPETEER_EXECUTABLE_PATH?.trim();
 
   if (!fs.existsSync(userDataDir)) {
@@ -209,13 +213,14 @@ export async function fetchTradeInventory(opts) {
     const timeLeft = () => deadline - Date.now();
 
     browser = await pp.launch({
-      headless,
+      headless: puppeteerHeadless(),
       userDataDir,
       ...(executablePath ? { executablePath } : {}),
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      args: puppeteerChromeArgs(["--disable-dev-shm-usage", "--disable-gpu"]),
     });
 
     const page = await browser.newPage();
+    await authenticatePuppeteerProxy(page);
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
