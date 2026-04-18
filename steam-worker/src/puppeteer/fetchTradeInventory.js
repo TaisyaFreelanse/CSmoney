@@ -226,6 +226,25 @@ export async function fetchTradeInventory(opts) {
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     );
 
+    if (process.env.STEAM_WORKER_DEBUG_GEO === "1") {
+      try {
+        await page.goto("https://geo.brdtest.com/mygeo.json", {
+          waitUntil: "domcontentloaded",
+          timeout: 15_000,
+        });
+        const geoText = await page.evaluate(() => document.body.innerText).catch(() => "");
+        logJson("steam_worker_debug_geo", {
+          accountId,
+          body: geoText.length > 2000 ? geoText.slice(0, 2000) : geoText,
+        });
+      } catch (e) {
+        logJson("steam_worker_debug_geo", {
+          accountId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
     page.on("response", (response) => {
       const url = response.url();
       if (!isStrictPartnerCs2(url, partnerSteamId64)) return;
