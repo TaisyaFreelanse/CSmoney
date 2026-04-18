@@ -5,3 +5,8 @@ Thumbs.db
 web/.env
 web/.env.local
 web/.env.*.local
+
+# SSH keys in repo root (never commit private keys)
+/id_ed25519
+/id_rsa
+*.pem
