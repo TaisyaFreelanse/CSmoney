@@ -16,7 +16,8 @@
     "db:studio": "prisma studio",
     "test": "vitest run",
     "test:puppeteer-steam": "node ./scripts/test-steam-puppeteer-inventory.mjs",
-    "test:puppeteer-steam-owner": "node ./scripts/test-steam-puppeteer-owner-inventory.mjs"
+    "test:puppeteer-steam-owner": "node ./scripts/test-steam-puppeteer-owner-inventory.mjs",
+    "steam:profile-login": "node ./scripts/steam-profile-login.mjs"
   },
   "dependencies": {
     "@csfloat/cs2-inspect-serializer": "^1.1.6",

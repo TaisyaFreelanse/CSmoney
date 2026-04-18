@@ -11,6 +11,11 @@
 
 import https from "node:https";
 
+import {
+  logSteamProfilesStorageHint,
+  recordSteamProfileSuccess,
+  resolveOwnerPuppeteerAccount,
+} from "./steam-puppeteer-accounts";
 import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "./steam-community-url";
 
 export {
@@ -72,6 +77,16 @@ export interface NormalizedItem {
   tradable: boolean;
   marketable: boolean;
   inspectLink: string | null;
+}
+
+/**
+ * Merge browser + API inventory: on duplicate `assetId`, the API item wins (float/phase from asset_properties).
+ */
+export function mergeInventoriesPreferApi(apiItems: NormalizedItem[], browserItems: NormalizedItem[]): NormalizedItem[] {
+  const m = new Map<string, NormalizedItem>();
+  for (const i of browserItems) m.set(i.assetId, i);
+  for (const i of apiItems) m.set(i.assetId, i);
+  return [...m.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -818,6 +833,7 @@ function ownerTradeOfferPuppeteerStrikeCandidate(p: {
   if (d === "owner_cookie_missing_steam_login_secure" || d === "owner_cookie_session_mismatch") return false;
   if (p.reason === "timeout") return true;
   if (d === "partnerinventory_cs2_xhr") return true;
+  if (p.reason === "session_invalid") return true;
   if (p.reason === "empty") return true;
   if (p.reason === "not_available") return true;
   if (p.reason === "unknown") return true;
@@ -871,20 +887,13 @@ export async function fetchOwnerInventory(
     return { ok: true, items: normalizeInventory(result.data, ownerSteamId) };
   };
 
-  /** Same merge rule as guest: browser/trade page wins on duplicate assetId. */
-  const mergeOwnerInventoriesPreferBrowser = (
-    browserItems: NormalizedItem[],
-    apiItems: NormalizedItem[],
-  ): NormalizedItem[] => {
-    const m = new Map<string, NormalizedItem>();
-    for (const i of apiItems) m.set(i.assetId, i);
-    for (const i of browserItems) m.set(i.assetId, i);
-    return [...m.values()];
-  };
+  logSteamProfilesStorageHint();
 
   const tradeUrl = process.env.OWNER_TRADE_URL?.trim();
+  const ownerAcc = resolveOwnerPuppeteerAccount();
   const canPuppeteer =
-    Boolean(process.env.STEAM_COMMUNITY_COOKIES?.trim()) && process.env.STEAM_INVENTORY_BROWSER !== "0";
+    process.env.STEAM_INVENTORY_BROWSER !== "0" &&
+    Boolean(ownerAcc && (ownerAcc.userDataDir || ownerAcc.cookies));
 
   if (!tradeUrl || !canPuppeteer) {
     const api = await fetchOwnerApiNormalized();
@@ -909,10 +918,14 @@ export async function fetchOwnerInventory(
     return { ok: true, items: api.items, ownerInventoryPrimarySource: "api" };
   }
 
-  const { runThroughSteamGuestGate } = await import("@/lib/guest-steam-global-gate");
+  const { runThroughSteamGuestApiGate, runThroughSteamGuestPuppeteerLaneGate } = await import(
+    "@/lib/guest-steam-split-gate",
+  );
   const { fetchOwnerInventoryViaTradeOfferPuppeteer } = await import("@/lib/owner-inventory-puppeteer");
   const { ensureGuestPuppeteerCookiesLoggedOnce } = await import("@/lib/guest-inventory-puppeteer");
   ensureGuestPuppeteerCookiesLoggedOnce();
+
+  const ownerLaneId = ownerAcc?.laneId ?? normalizeSteamId64ForCache(ownerSteamId);
 
   const maybeStrikeOwnerPuppeteer = async (r: {
     ok: boolean;
@@ -924,7 +937,7 @@ export async function fetchOwnerInventory(
   };
 
   const apiAfterBrowser = async (skipMinSpacing: boolean) => {
-    const g = await runThroughSteamGuestGate(() => fetchOwnerApiNormalized(), { skipMinSpacing });
+    const g = await runThroughSteamGuestApiGate(() => fetchOwnerApiNormalized(), { skipMinSpacing });
     if (!g.ok) {
       console.warn("[steam-inv] owner inventory API (after browser) queue full — ungated API attempt");
       return fetchOwnerApiNormalized();
@@ -932,15 +945,25 @@ export async function fetchOwnerInventory(
     return g.value;
   };
 
-  const finishTradeUrlSuccess = async (raw: unknown) => {
-    await invCacheMod.ownerPuppeteerCircuitRecordSuccess(ownerSteamId);
-    const browserItems = normalizeInventory(raw, ownerSteamId);
-    const api = await apiAfterBrowser(true);
-    const items = api.ok ? mergeOwnerInventoriesPreferBrowser(browserItems, api.items) : browserItems;
-    return { ok: true as const, items, ownerInventoryPrimarySource: "trade_url" as const };
+  const gApi0 = await runThroughSteamGuestApiGate(() => fetchOwnerApiNormalized());
+  let apiItems: NormalizedItem[] = [];
+  if (!gApi0.ok) {
+    console.warn("[steam-inv] owner API gate queue full — ungated fetch");
+    const api = await fetchOwnerApiNormalized();
+    if (!api.ok) return api;
+    apiItems = api.items;
+  } else if (gApi0.value.ok) {
+    apiItems = gApi0.value.items;
+  }
+
+  const runOwnerPuppeteer = () => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl);
+
+  const mergeOwnerWithApi = (browserRaw: unknown) => {
+    const browserItems = normalizeInventory(browserRaw, ownerSteamId);
+    return mergeInventoriesPreferApi(apiItems, browserItems);
   };
 
-  const g1 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl));
+  const g1 = await runThroughSteamGuestPuppeteerLaneGate(ownerLaneId, runOwnerPuppeteer);
   if (!g1.ok) {
     const api = await fetchOwnerApiNormalized();
     if (!api.ok) return api;
@@ -949,7 +972,10 @@ export async function fetchOwnerInventory(
 
   let p = g1.value;
   if (p.ok) {
-    return finishTradeUrlSuccess(p.raw);
+    await invCacheMod.ownerPuppeteerCircuitRecordSuccess(ownerSteamId);
+    recordSteamProfileSuccess(ownerLaneId, ownerAcc?.accountId);
+    const items = mergeOwnerWithApi(p.raw);
+    return { ok: true, items, ownerInventoryPrimarySource: "trade_url" };
   }
 
   await maybeStrikeOwnerPuppeteer(p);
@@ -961,11 +987,14 @@ export async function fetchOwnerInventory(
   }
 
   if (p.reason === "not_available") {
-    const g2 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl), {
+    const g2 = await runThroughSteamGuestPuppeteerLaneGate(ownerLaneId, runOwnerPuppeteer, {
       skipMinSpacing: true,
     });
     if (g2.ok && g2.value.ok) {
-      return finishTradeUrlSuccess(g2.value.raw);
+      await invCacheMod.ownerPuppeteerCircuitRecordSuccess(ownerSteamId);
+      recordSteamProfileSuccess(ownerLaneId, ownerAcc?.accountId);
+      const items = mergeOwnerWithApi(g2.value.raw);
+      return { ok: true, items, ownerInventoryPrimarySource: "trade_url" };
     }
     if (g2.ok && !g2.value.ok) {
       await maybeStrikeOwnerPuppeteer(g2.value);
@@ -976,9 +1005,12 @@ export async function fetchOwnerInventory(
   }
 
   if (p.reason === "private") {
-    const g2 = await runThroughSteamGuestGate(() => fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl));
+    const g2 = await runThroughSteamGuestPuppeteerLaneGate(ownerLaneId, runOwnerPuppeteer);
     if (g2.ok && g2.value.ok) {
-      return finishTradeUrlSuccess(g2.value.raw);
+      await invCacheMod.ownerPuppeteerCircuitRecordSuccess(ownerSteamId);
+      recordSteamProfileSuccess(ownerLaneId, ownerAcc?.accountId);
+      const items = mergeOwnerWithApi(g2.value.raw);
+      return { ok: true, items, ownerInventoryPrimarySource: "trade_url" };
     }
     if (g2.ok && !g2.value.ok) {
       await maybeStrikeOwnerPuppeteer(g2.value);
@@ -994,7 +1026,8 @@ export async function fetchOwnerInventory(
     p.reason === "timeout" ||
     p.reason === "rate_limited" ||
     p.reason === "unknown" ||
-    p.reason === "invalid_trade_url"
+    p.reason === "invalid_trade_url" ||
+    p.reason === "session_invalid"
   ) {
     const api = await apiAfterBrowser(false);
     if (!api.ok) return api;

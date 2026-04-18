@@ -2,10 +2,11 @@ import "server-only";
 
 import { fetchGuestInventoryViaTradeOfferPuppeteer } from "@/lib/guest-inventory-puppeteer";
 import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
+import { resolveOwnerPuppeteerAccount } from "@/lib/steam-puppeteer-accounts";
 
 /**
  * Owner shop: same trade-offer / partner-column capture as guest, with OWNER_TRADE_URL pointing at this account.
- * Logs use `owner_inv_puppeteer` + `puppeteer_owner_invoke` (see guest-inventory-puppeteer).
+ * Session: `OWNER_USER_DATA_DIR` / JSON `"owner": true` / cookies (see resolveOwnerPuppeteerAccount).
  */
 export async function fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl: string) {
   const owner = process.env.OWNER_STEAM_ID?.trim();
@@ -19,5 +20,12 @@ export async function fetchOwnerInventoryViaTradeOfferPuppeteer(tradeUrl: string
       });
     }
   }
-  return fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl.trim(), { logProfile: "owner" });
+  const acc = resolveOwnerPuppeteerAccount();
+  return fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl.trim(), {
+    logProfile: "owner",
+    steamCommunityCookies: acc?.cookies,
+    userDataDir: acc?.userDataDir,
+    accountId: acc?.accountId,
+    workerLaneId: acc?.laneId,
+  });
 }

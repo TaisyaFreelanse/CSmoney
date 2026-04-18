@@ -3,6 +3,9 @@
 # Puppeteer Chrome for Testing (downloaded at build; do not commit)
 /.puppeteer-chrome/
 
+# Persistent Chromium userDataDir sessions (STEAM_PUPPETEER_ACCOUNTS_JSON); do not commit
+/profiles/
+
 # dependencies
 /node_modules
 /.pnp

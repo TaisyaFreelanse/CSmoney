@@ -1,10 +1,21 @@
 import "server-only";
 
+import { enrichNewItemsWithCsFloat } from "@/lib/csfloat";
 import {
   ensureGuestPuppeteerCookiesLoggedOnce,
   fetchGuestInventoryViaTradeOfferPuppeteer,
 } from "@/lib/guest-inventory-puppeteer";
-import { runThroughSteamGuestGate } from "@/lib/guest-steam-global-gate";
+import {
+  runThroughSteamGuestApiGate,
+  runThroughSteamGuestPuppeteerLaneGate,
+} from "@/lib/guest-steam-split-gate";
+import {
+  markGuestPuppeteerAccountInvalid,
+  markGuestSteamProfileSessionInvalid,
+  nextGuestPuppeteerAccount,
+  recordSteamProfileSuccess,
+  type SteamPuppeteerAccount,
+} from "@/lib/steam-puppeteer-accounts";
 import {
   getGuestSnapshotEntry,
   markUserRefreshed,
@@ -15,20 +26,13 @@ import {
 } from "@/lib/inventory-cache";
 import {
   fetchGuestInventoryBySteamId64,
+  mergeInventoriesPreferApi,
   normalizeInventory,
   normalizeSteamId64ForCache,
   parseTradeUrl,
   trySteamId64FromPartner,
 } from "@/lib/steam-inventory";
 import type { NormalizedItem } from "@/lib/steam-inventory";
-
-/** API добирает asset'ы, которых нет в ответе trade page / частичной пагинации; при совпадении id приоритет у браузера. */
-function mergeGuestInventoriesPreferBrowser(browserItems: NormalizedItem[], apiItems: NormalizedItem[]): NormalizedItem[] {
-  const m = new Map<string, NormalizedItem>();
-  for (const i of apiItems) m.set(i.assetId, i);
-  for (const i of browserItems) m.set(i.assetId, i);
-  return [...m.values()];
-}
 
 const STALE_WARNING_MS = 24 * 60 * 60 * 1000;
 const SHORT_UNSTABLE_COOLDOWN_MS = 15 * 60 * 1000;
@@ -50,8 +54,8 @@ export type GuestInventoryLoadFlags = {
   /** Suggested client backoff: 15s when Steam pipeline busy; 15m when unstable / rate-limited. */
   retryAfterMs?: number;
   needsRefreshWarning?: boolean;
-  /** Основной источник списка: страница trade-offer (Puppeteer) или Web API. */
-  guestInventoryPrimarySource?: "trade_url" | "api";
+  /** Основной источник списка: trade-offer (полный), API, или смесь после merge. */
+  guestInventoryPrimarySource?: "trade_url" | "api" | "mixed";
   /** Снимок устарел по TTL — запланирован фоновый refresh (ответ не ждёт Steam). */
   backgroundRevalidateScheduled?: boolean;
 };
@@ -77,6 +81,7 @@ function logSteamFetch(args: {
   apiRole?: "primary" | "fallback" | "supplement";
   fallbackReason?: string;
   detail?: string;
+  workerSteamId?: string;
 }): void {
   console.log(
     JSON.stringify({
@@ -91,6 +96,7 @@ function logSteamFetch(args: {
       ...(args.apiRole != null ? { apiRole: args.apiRole } : {}),
       ...(args.fallbackReason != null ? { fallbackReason: args.fallbackReason } : {}),
       ...(args.detail != null ? { detail: args.detail } : {}),
+      ...(args.workerSteamId != null ? { workerSteamId: args.workerSteamId } : {}),
     }),
   );
 }
@@ -108,6 +114,7 @@ function puppeteerResultKind(
   if (p.ok) return "success";
   if (p.reason === "private") return "private";
   if (p.reason === "cannot_trade") return "error";
+  if (p.reason === "session_invalid") return "unstable";
   if (
     p.reason === "not_available" ||
     p.reason === "timeout" ||
@@ -154,7 +161,7 @@ async function gateApi(steamId64: string, ctx: GateApiCtx) {
     fallbackReason: ctx.fallbackReason ?? null,
   });
   const t0 = Date.now();
-  const g = await runThroughSteamGuestGate(() => fetchGuestInventoryBySteamId64(steamId64));
+  const g = await runThroughSteamGuestApiGate(() => fetchGuestInventoryBySteamId64(steamId64));
   if (!g.ok) {
     logSteamFetch({
       source: "api",
@@ -190,15 +197,31 @@ async function gateApi(steamId64: string, ctx: GateApiCtx) {
   return { kind: "ok" as const, api, queued: g.queued };
 }
 
-type GatePuppeteerOpts = { mode: string; attempt: number; skipMinSpacing?: boolean };
+type GatePuppeteerOpts = {
+  mode: string;
+  attempt: number;
+  skipMinSpacing?: boolean;
+  /** Явный worker; иначе {@link nextGuestPuppeteerAccount}. */
+  account?: SteamPuppeteerAccount | null;
+};
 
 async function gatePuppeteer(tradeUrl: string, opts: GatePuppeteerOpts) {
   const skipMinSpacing = opts.skipMinSpacing === true;
+  const acc = opts.account !== undefined ? opts.account : nextGuestPuppeteerAccount();
+  const lane = acc?.laneId ?? "default";
   /* puppeteer_invoke: см. guest-inventory-puppeteer (guest_inv_puppeteer). */
   const t0 = Date.now();
-  const g = await runThroughSteamGuestGate(() => fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl), {
-    skipMinSpacing,
-  });
+  const g = await runThroughSteamGuestPuppeteerLaneGate(
+    lane,
+    () =>
+      fetchGuestInventoryViaTradeOfferPuppeteer(tradeUrl, {
+        steamCommunityCookies: acc?.cookies,
+        userDataDir: acc?.userDataDir,
+        accountId: acc?.accountId,
+        workerLaneId: acc?.laneId,
+      }),
+    { skipMinSpacing },
+  );
   if (!g.ok) {
     logSteamFetch({
       source: "browser",
@@ -221,9 +244,17 @@ async function gatePuppeteer(tradeUrl: string, opts: GatePuppeteerOpts) {
     puppeteerReason: p.ok ? undefined : p.reason,
     detail: p.ok ? undefined : p.detail,
     itemCount: browserItemCount,
+    workerSteamId: acc?.laneId,
   });
   /* puppeteer_success / puppeteer_failed: см. guest-inventory-puppeteer (guest_inv_puppeteer). */
-  return { kind: "ok" as const, p, queued: g.queued };
+  return { kind: "ok" as const, p, queued: g.queued, account: acc };
+}
+
+function puppeteerFailureInvalidatesAccount(
+  p: Awaited<ReturnType<typeof fetchGuestInventoryViaTradeOfferPuppeteer>>,
+): boolean {
+  if (p.ok) return false;
+  return p.reason === "timeout" || p.reason === "empty" || p.reason === "not_available";
 }
 
 function queueFullResponse(
@@ -243,8 +274,8 @@ function queueFullResponse(
 }
 
 /**
- * Guest CS2 inventory: всегда сначала trade URL (Puppeteer); Steam Web API — добор к странице или fallback
- * (в т.ч. если нет STEAM_COMMUNITY_COOKIES / браузер отключён).
+ * Guest CS2 inventory: сначала Steam Community API (float/phase), затем полный список через trade URL (Puppeteer),
+ * merge по assetId с приоритетом API; CSFloat — только для предметов, отсутствующих в ответе API.
  */
 export async function loadGuestInventoryForUser(args: {
   userSteamId: string;
@@ -357,242 +388,240 @@ async function runGuestInventoryLoad(
   ensureGuestPuppeteerCookiesLoggedOnce();
 
   const steamId64 = snapshotSteamId;
-
-  let items: NormalizedItem[] | null = null;
+  const pipelineT0 = Date.now();
   let mark2hAfterSuccess = false;
   const skipUserRefreshMark = mode === "force_refresh";
 
-  const tryApiFallback = async (
-    setUnstable: boolean,
-    meta: { fallbackReason: string; detail?: string },
-  ): Promise<GuestInventoryLoadResult | null> => {
-    if (setUnstable) applyUnstable(flags);
-    logGuestInvPipeline("api_fallback_after_browser", {
-      source: "api",
-      mode,
-      fallbackReason: meta.fallbackReason,
-      detail: meta.detail ?? null,
-    });
-    const g = await gateApi(steamId64, {
-      mode,
-      role: "fallback",
-      fallbackReason: meta.fallbackReason,
-      detail: meta.detail,
-    });
-    if (g.kind === "queue_full") {
-      return queueFullResponse(snap, flags);
+  const gApi0 = await gateApi(steamId64, { mode, role: "primary" });
+  if (gApi0.kind === "queue_full") {
+    return queueFullResponse(snap, flags);
+  }
+
+  const apiRes = gApi0.api;
+  const apiItems: NormalizedItem[] = apiRes.ok ? apiRes.items : [];
+  const apiAssetIds = new Set(apiItems.map((i) => i.assetId));
+
+  logGuestInvPipeline("api_first_complete", {
+    mode,
+    apiOk: apiRes.ok,
+    apiItemCount: apiItems.length,
+    apiError: apiRes.ok ? null : apiRes.error,
+  });
+
+  if (!apiRes.ok) {
+    const r = rejectIfApiRateLimited(apiRes.error, userSteamId, flags);
+    if (r) return r;
+  }
+
+  const finalizeSuccess = async (
+    merged: NormalizedItem[],
+    primary: NonNullable<GuestInventoryLoadFlags["guestInventoryPrimarySource"]>,
+    puppeteerWorker?: SteamPuppeteerAccount | null,
+  ): Promise<GuestInventoryLoadResult> => {
+    if (
+      puppeteerWorker &&
+      (primary === "mixed" || primary === "trade_url")
+    ) {
+      recordSteamProfileSuccess(puppeteerWorker.laneId, puppeteerWorker.accountId);
     }
-    if (!g.api.ok) {
-      const r = rejectIfApiRateLimited(g.api.error, userSteamId, flags);
-      if (r) return r;
-      return { ok: false, error: g.api.error, flags };
+    const cs = await enrichNewItemsWithCsFloat(merged, apiRes.ok ? apiAssetIds : new Set<string>());
+    logGuestInvPipeline("guest_inv_load_complete", {
+      mode,
+      snapshotSteamId,
+      primarySource: primary,
+      totalItems: merged.length,
+      apiItemCount: apiItems.length,
+      newWithoutApi: cs.newWithoutApi,
+      csfloatSent: cs.sentToCsfloat,
+      csfloatCacheHits: cs.cacheHits,
+      csfloatEnriched: cs.enriched,
+      durationMs: Date.now() - pipelineT0,
+    });
+    console.log(
+      JSON.stringify({
+        type: "guest_inv_task",
+        status: "done",
+        snapshotSteamId,
+        primarySource: primary,
+        totalItems: merged.length,
+        newWithoutApi: cs.newWithoutApi,
+        csfloatSent: cs.sentToCsfloat,
+        durationMs: Date.now() - pipelineT0,
+      }),
+    );
+    await setCache(snapshotSteamId, merged);
+    if (!skipUserRefreshMark && mark2hAfterSuccess) {
+      await markUserRefreshed(userSteamId);
     }
-    items = g.api.items;
-    flags.guestInventoryPrimarySource = "api";
-    return null;
+    flags.guestInventoryPrimarySource = primary;
+    return { ok: true, items: merged, flags };
   };
 
-  /** Добор полного списка через API сразу после trade page (одна логическая загрузка — без лишнего 15s spacing). */
-  const supplementFromApiAfterBrowser = async (browserItems: NormalizedItem[]): Promise<NormalizedItem[]> => {
-    const browserCount = browserItems.length;
-    logGuestInvPipeline("api_supplement_invoke", {
-      source: "api",
-      mode,
-      browserItemCount: browserCount,
-    });
-    const t0 = Date.now();
-    const g = await runThroughSteamGuestGate(() => fetchGuestInventoryBySteamId64(steamId64), {
-      skipMinSpacing: true,
-    });
-    if (!g.ok) {
-      logGuestInvPipeline("api_supplement_skipped", {
-        source: "api",
-        mode,
-        reason: "queue_full",
-        durationMs: Date.now() - t0,
-      });
-      return browserItems;
+  const maybeInvalidateAccount = (
+    acc: SteamPuppeteerAccount | null | undefined,
+    p: Awaited<ReturnType<typeof fetchGuestInventoryViaTradeOfferPuppeteer>>,
+  ) => {
+    if (!acc || p.ok) return;
+    if (p.reason === "session_invalid") {
+      markGuestSteamProfileSessionInvalid(acc.laneId, p.detail ?? "session_invalid", acc.accountId);
+      return;
     }
-    const api = g.value;
-    if (!api.ok) {
-      const apiResult: "private" | "unstable" | "error" = api.error.includes("private")
-        ? "private"
-        : isSteamRateLimited(api.error)
-          ? "unstable"
-          : "error";
-      logGuestInvPipeline("api_supplement_failed", {
-        source: "api",
-        mode,
-        error: api.error,
-        durationMs: Date.now() - t0,
-      });
-      logSteamFetch({
-        source: "api",
-        result: apiResult,
-        durationMs: Date.now() - t0,
-        queued: g.queued,
-        mode,
-        apiRole: "supplement",
-        detail: api.error,
-      });
-      return browserItems;
+    if (puppeteerFailureInvalidatesAccount(p)) {
+      markGuestPuppeteerAccountInvalid(acc.laneId, p.reason);
     }
-    const merged = mergeGuestInventoriesPreferBrowser(browserItems, api.items);
-    logGuestInvPipeline("api_supplement_merged", {
-      source: "api",
-      mode,
-      browserItemCount: browserCount,
-      apiItemCount: api.items.length,
-      mergedItemCount: merged.length,
-      durationMs: Date.now() - t0,
-    });
-    logSteamFetch({
-      source: "api",
-      result: "success",
-      durationMs: Date.now() - t0,
-      queued: g.queued,
-      mode,
-      apiRole: "supplement",
-      itemCount: api.items.length,
-    });
-    return merged;
   };
 
-  const g1 = await gatePuppeteer(tradeUrl, { mode, attempt: 1 });
+  const accFirst = nextGuestPuppeteerAccount();
+  const g1 = await gatePuppeteer(tradeUrl, { mode, attempt: 1, account: accFirst });
   if (g1.kind === "queue_full") {
     return queueFullResponse(snap, flags);
   }
   const p1 = g1.p;
+  maybeInvalidateAccount(g1.account, p1);
 
   if (p1.ok) {
-    flags.guestInventoryPrimarySource = "trade_url";
-    items = await supplementFromApiAfterBrowser(normalizeInventory(p1.raw, p1.steamId64));
+    const browserItems = normalizeInventory(p1.raw, p1.steamId64);
+    const merged = mergeInventoriesPreferApi(apiItems, browserItems);
+    const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
+      apiItems.length > 0 ? "mixed" : "trade_url";
     mark2hAfterSuccess = true;
-  } else if (p1.reason === "disabled" || p1.reason === "launch_failed") {
-    logGuestInvPipeline("api_primary_no_browser", {
-      source: "api",
+    return finalizeSuccess(merged, primary, g1.account ?? null);
+  }
+
+  if (p1.reason === "disabled" || p1.reason === "launch_failed") {
+    logGuestInvPipeline("puppeteer_skipped_browser_down", {
       mode,
       puppeteerReason: p1.reason,
       detail: p1.detail ?? null,
     });
-    const err = await tryApiFallback(p1.reason === "launch_failed", {
-      fallbackReason:
-        p1.reason === "disabled"
-          ? p1.detail === "steam_inventory_browser_disabled"
-            ? "puppeteer_disabled_browser_flag"
-            : "puppeteer_disabled_no_cookies"
-          : "puppeteer_launch_failed",
-      detail: p1.detail,
-    });
-    if (err) return err;
+    if (!apiRes.ok) {
+      return { ok: false, error: apiRes.error, flags };
+    }
     mark2hAfterSuccess = true;
-  } else if (p1.reason === "rate_limited") {
+    return finalizeSuccess([...apiItems], "api");
+  }
+
+  if (p1.reason === "rate_limited") {
     await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
     applyUnstable(flags);
+    console.log(
+      JSON.stringify({
+        type: "guest_inv_task",
+        status: "error",
+        error: "steam_rate_limit",
+        snapshotSteamId,
+        durationMs: Date.now() - pipelineT0,
+      }),
+    );
     return { ok: false, error: "steam_rate_limit", flags };
-  } else if (p1.reason === "not_available") {
-    const g2 = await gatePuppeteer(tradeUrl, { mode, attempt: 2, skipMinSpacing: true });
+  }
+
+  if (p1.reason === "session_invalid") {
+    applyUnstable(flags);
+    if (!apiRes.ok) {
+      return { ok: false, error: apiRes.error, flags };
+    }
+    if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
+    mark2hAfterSuccess = true;
+    return finalizeSuccess([...apiItems], "api");
+  }
+
+  if (p1.reason === "not_available") {
+    const acc2 = nextGuestPuppeteerAccount();
+    const g2 = await gatePuppeteer(tradeUrl, { mode, attempt: 2, skipMinSpacing: true, account: acc2 });
     if (g2.kind === "queue_full") {
       return queueFullResponse(snap, flags);
     }
     const p2 = g2.p;
+    maybeInvalidateAccount(g2.account, p2);
     if (p2.ok) {
-      flags.guestInventoryPrimarySource = "trade_url";
-      items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
+      const browserItems = normalizeInventory(p2.raw, p2.steamId64);
+      const merged = mergeInventoriesPreferApi(apiItems, browserItems);
+      const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
+        apiItems.length > 0 ? "mixed" : "trade_url";
       mark2hAfterSuccess = true;
-    } else if (p2.reason === "rate_limited") {
+      return finalizeSuccess(merged, primary, g2.account ?? null);
+    }
+    if (p2.reason === "rate_limited") {
       await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
       applyUnstable(flags);
       return { ok: false, error: "steam_rate_limit", flags };
-    } else {
-      await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
-      applyUnstable(flags);
-      const err = await tryApiFallback(false, {
-        fallbackReason: "puppeteer_not_available_retry_exhausted",
-        detail: p2.detail,
-      });
-      if (err) return err;
     }
-  } else if (p1.reason === "private") {
-    const g2 = await gatePuppeteer(tradeUrl, { mode, attempt: 2 });
+    await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
+    applyUnstable(flags);
+    if (!apiRes.ok) {
+      return { ok: false, error: "guest_inventory_unavailable", flags };
+    }
+    mark2hAfterSuccess = true;
+    return finalizeSuccess([...apiItems], "api");
+  }
+
+  if (p1.reason === "private") {
+    const acc2 = nextGuestPuppeteerAccount();
+    const g2 = await gatePuppeteer(tradeUrl, { mode, attempt: 2, account: acc2 });
     if (g2.kind === "queue_full") {
       return queueFullResponse(snap, flags);
     }
     const p2 = g2.p;
+    maybeInvalidateAccount(g2.account, p2);
     if (p2.ok) {
-      flags.guestInventoryPrimarySource = "trade_url";
-      items = await supplementFromApiAfterBrowser(normalizeInventory(p2.raw, p2.steamId64));
+      const browserItems = normalizeInventory(p2.raw, p2.steamId64);
+      const merged = mergeInventoriesPreferApi(apiItems, browserItems);
+      const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
+        apiItems.length > 0 ? "mixed" : "trade_url";
       mark2hAfterSuccess = true;
-    } else if (p2.reason === "rate_limited") {
+      return finalizeSuccess(merged, primary, g2.account ?? null);
+    }
+    if (p2.reason === "rate_limited") {
       await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
       applyUnstable(flags);
       return { ok: false, error: "steam_rate_limit", flags };
-    } else if (p2.reason === "private") {
+    }
+    if (p2.reason === "private") {
       flags.isPrivate = true;
       if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
-      const err = await tryApiFallback(false, {
-        fallbackReason: "puppeteer_private_after_retry",
-        detail: p2.detail,
-      });
-      if (err) return err;
-    } else {
-      const err = await tryApiFallback(p2.reason === "timeout" || p2.reason === "empty", {
-        fallbackReason: `puppeteer_private_retry_${p2.reason}`,
-        detail: p2.detail,
-      });
-      if (err) return err;
+      if (!apiRes.ok) {
+        return { ok: false, error: "private_inventory", flags };
+      }
       mark2hAfterSuccess = true;
+      return finalizeSuccess([...apiItems], "api");
     }
-  } else if (p1.reason === "cannot_trade") {
-    if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
-    const err = await tryApiFallback(false, {
-      fallbackReason: "puppeteer_cannot_trade",
-      detail: p1.detail,
-    });
-    if (err) return err;
-    flags.cannotTrade = true;
-  } else if (p1.reason === "empty" || p1.reason === "timeout") {
-    const err = await tryApiFallback(true, {
-      fallbackReason: `puppeteer_${p1.reason}`,
-      detail: p1.detail,
-    });
-    if (err) return err;
-    if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
-  } else {
-    logGuestInvPipeline("api_fallback_after_browser", {
-      source: "api",
-      mode,
-      fallbackReason: `puppeteer_unhandled_${p1.reason}`,
-      detail: p1.detail ?? null,
-    });
-    const gApi = await gateApi(steamId64, {
-      mode,
-      role: "fallback",
-      fallbackReason: `puppeteer_unhandled_${p1.reason}`,
-      detail: p1.detail,
-    });
-    if (gApi.kind === "queue_full") {
-      return queueFullResponse(snap, flags);
+    if (!apiRes.ok) {
+      return { ok: false, error: "guest_inventory_unavailable", flags };
     }
-    if (!gApi.api.ok) {
-      const r = rejectIfApiRateLimited(gApi.api.error, userSteamId, flags);
-      if (r) return r;
-      return { ok: false, error: gApi.api.error, flags };
-    }
-    items = gApi.api.items;
-    flags.guestInventoryPrimarySource = "api";
     mark2hAfterSuccess = true;
+    return finalizeSuccess([...apiItems], "api");
   }
 
-  if (!items) {
-    return { ok: false, error: "guest_inventory_unavailable", flags };
+  if (p1.reason === "cannot_trade") {
+    if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
+    flags.cannotTrade = true;
+    if (!apiRes.ok) {
+      return { ok: false, error: apiRes.error, flags };
+    }
+    mark2hAfterSuccess = true;
+    return finalizeSuccess([...apiItems], "api");
   }
 
-  await setCache(snapshotSteamId, items);
-
-  if (!skipUserRefreshMark && mark2hAfterSuccess) {
-    await markUserRefreshed(userSteamId);
+  if (p1.reason === "empty" || p1.reason === "timeout") {
+    applyUnstable(flags);
+    if (!apiRes.ok) {
+      if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
+      return { ok: false, error: apiRes.error, flags };
+    }
+    if (!skipUserRefreshMark) await markUserRefreshed(userSteamId);
+    mark2hAfterSuccess = true;
+    return finalizeSuccess([...apiItems], "api");
   }
 
-  return { ok: true, items, flags };
+  logGuestInvPipeline("puppeteer_unhandled", {
+    mode,
+    reason: p1.reason,
+    detail: p1.detail ?? null,
+  });
+  if (!apiRes.ok) {
+    return { ok: false, error: apiRes.error, flags };
+  }
+  mark2hAfterSuccess = true;
+  return finalizeSuccess([...apiItems], "api");
 }

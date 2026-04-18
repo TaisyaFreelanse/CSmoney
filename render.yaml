@@ -70,6 +70,11 @@ services:
         sync: false
       - key: FX_RATES_MIN_SYNC_INTERVAL_HOURS
         sync: false
+      # Chromium userDataDir root — must point at a Render persistent disk mount (e.g. /mount/profiles).
+      - key: STEAM_PUPPETEER_PROFILES_DIR
+        sync: false
+      - key: OWNER_USER_DATA_DIR
+        sync: false
 
   - type: cron
     name: price-sync-fra
