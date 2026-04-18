@@ -1,5 +1,6 @@
 export function puppeteerHeadless() {
-  return process.env.STEAM_WORKER_HEADLESS !== "0";
+  const v = process.env.STEAM_WORKER_HEADLESS;
+  return v === "1" || v === "true";
 }
 
 /** @param {string[]} extra */
