@@ -3,10 +3,10 @@
  * Open Chromium with a persistent userDataDir so you can log in to Steam once
  * (login + Guard). Same folder as STEAM_PUPPETEER_ACCOUNTS_JSON / OWNER_USER_DATA_DIR.
  *
- * Usage:
+ * Usage (from web/):
+ *   npm run steam -- acc_1
  *   STEAM_PUPPETEER_PROFILES_DIR=/mount/profiles node scripts/steam-profile-login.mjs acc_1
  *   node scripts/steam-profile-login.mjs /mount/profiles/acc_1
- *   STEAM_PUPPETEER_HEADLESS=0 node scripts/steam-profile-login.mjs acc_1
  *
  * Close the browser window when done; profile stays on disk.
  */
