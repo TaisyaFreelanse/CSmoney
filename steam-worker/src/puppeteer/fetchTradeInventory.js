@@ -34,16 +34,78 @@ function isStrictPartnerCs2(url, expectedSteam64) {
   }
 }
 
+/** Broader partner CS2 inventory XHR (lazy UI / alternate paths); always requires matching partner + appid. */
+function isLoosePartnerCs2InventoryJsonUrl(url, expectedSteam64) {
+  try {
+    const u = new URL(url);
+    if (!u.hostname.toLowerCase().endsWith("steamcommunity.com")) return false;
+    const partner = u.searchParams.get("partner")?.trim();
+    if (!partner) return false;
+    if (normalizeSteamId64(partner) !== normalizeSteamId64(expectedSteam64)) return false;
+    const appid = u.searchParams.get("appid");
+    if (appid != null && appid !== String(TARGET_APPID)) return false;
+    const path = u.pathname.toLowerCase();
+    if (path.includes("partnerinventory")) return true;
+    if (path.includes("/tradeoffer/new/") && path.includes("inventory")) return true;
+    if (path.includes("/economy/") && path.includes("inventory")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function shouldCapturePartnerInventoryJson(url, expectedSteam64) {
+  return isStrictPartnerCs2(url, expectedSteam64) || isLoosePartnerCs2InventoryJsonUrl(url, expectedSteam64);
+}
+
 async function waitForTradeUi(page, timeoutMs) {
   await page.waitForFunction(
-    () =>
-      typeof window.TradePageSelectInventory === "function" &&
-      window.UserThem != null &&
-      (document.querySelector("#inventories") != null ||
+    () => {
+      const w = window;
+      const hasApi = typeof w.TradePageSelectInventory === "function" && w.UserThem != null;
+      const hasPartnerRg =
+        w.g_rgPartnerInventory != null &&
+        typeof w.g_rgPartnerInventory === "object" &&
+        Object.keys(w.g_rgPartnerInventory).length > 0;
+      const domReady =
+        document.querySelector("#inventories") != null ||
         document.querySelector(".trade_content") != null ||
-        document.querySelector("#tradeoffer_items") != null),
-    { timeout: Math.max(3000, timeoutMs), polling: 400 },
+        document.querySelector("#tradeoffer_items") != null ||
+        document.querySelector("#trade_theirs") != null ||
+        document.querySelector(".trade_area") != null ||
+        document.querySelector(".trade_item_box") != null;
+      return (hasApi && domReady) || hasPartnerRg;
+    },
+    { timeout: Math.max(5000, timeoutMs), polling: 500 },
   );
+}
+
+async function captureTradeUiDiagnostics(page) {
+  return page
+    .evaluate(() => {
+      const w = window;
+      const g = w.g_rgPartnerInventory;
+      let gRgKeys = 0;
+      try {
+        gRgKeys = g != null && typeof g === "object" ? Object.keys(g).length : 0;
+      } catch {
+        gRgKeys = -1;
+      }
+      return {
+        pageUrl: w.location?.href ?? "",
+        readyState: document.readyState,
+        tradePageSelect: typeof w.TradePageSelectInventory === "function",
+        userThem: w.UserThem != null,
+        gRgPartnerInventoryKeys: gRgKeys,
+      };
+    })
+    .catch(() => ({
+      pageUrl: "",
+      readyState: "",
+      tradePageSelect: false,
+      userThem: false,
+      gRgPartnerInventoryKeys: -1,
+    }));
 }
 
 async function evaluateSteamSessionState(page) {
@@ -58,11 +120,19 @@ async function evaluateSteamSessionState(page) {
         document.querySelector("form[action*='Login']") != null ||
         document.querySelector("form[action*='login']") != null ||
         document.querySelector(".newlogindialog_ModalContainer") != null;
+      const w = window;
+      const hasPartnerRg =
+        w.g_rgPartnerInventory != null &&
+        typeof w.g_rgPartnerInventory === "object" &&
+        Object.keys(w.g_rgPartnerInventory).length > 0;
       const tradeSurface =
-        typeof window.TradePageSelectInventory === "function" ||
+        typeof w.TradePageSelectInventory === "function" ||
+        hasPartnerRg ||
         document.querySelector("#inventories") != null ||
         document.querySelector(".trade_content") != null ||
-        document.querySelector("#tradeoffer_items") != null;
+        document.querySelector("#tradeoffer_items") != null ||
+        document.querySelector("#trade_theirs") != null ||
+        document.querySelector(".trade_area") != null;
       const loginWall = (loginUrl || loginForm) && !tradeSurface;
       return {
         loginWall,
@@ -168,17 +238,17 @@ export async function fetchTradeInventory(opts) {
   } = opts;
 
   const taskTimeoutMs = Math.min(
-    120_000,
-    Math.max(45_000, Number(opts.taskTimeoutMs) || Number(process.env.STEAM_WORKER_TASK_TIMEOUT_MS) || 90_000),
+    180_000,
+    Math.max(60_000, Number(opts.taskTimeoutMs) || Number(process.env.STEAM_WORKER_TASK_TIMEOUT_MS) || 120_000),
   );
 
   const maxBrowserMs = Math.min(
-    Math.min(180_000, Math.max(60_000, Number(process.env.STEAM_WORKER_MAX_BROWSER_MS) || 120_000)),
+    Math.min(180_000, Math.max(75_000, Number(process.env.STEAM_WORKER_MAX_BROWSER_MS) || 120_000)),
     taskTimeoutMs - 3000,
   );
 
   const partnerXhrWaitMs = Math.min(
-    Math.min(90_000, Math.max(30_000, Number(partnerXhrWaitMsOpt) || Number(process.env.STEAM_WORKER_PARTNER_XHR_WAIT_MS) || 60_000)),
+    Math.min(120_000, Math.max(20_000, Number(partnerXhrWaitMsOpt) || Number(process.env.STEAM_WORKER_PARTNER_XHR_WAIT_MS) || 60_000)),
     maxBrowserMs - 5000,
   );
 
@@ -247,7 +317,17 @@ export async function fetchTradeInventory(opts) {
 
     page.on("response", (response) => {
       const url = response.url();
-      if (!isStrictPartnerCs2(url, partnerSteamId64)) return;
+      if (process.env.STEAM_WORKER_DEBUG_XHR === "1" && url.includes("inventory")) {
+        try {
+          logJson("steam_worker_inventory_xhr_url", {
+            accountId,
+            path: new URL(url).pathname.slice(0, 120),
+          });
+        } catch {
+          logJson("steam_worker_inventory_xhr_url", { accountId, path: url.slice(0, 160) });
+        }
+      }
+      if (!shouldCapturePartnerInventoryJson(url, partnerSteamId64)) return;
       if (response.status() !== 200) return;
       const task = (async () => {
         let text;
@@ -274,6 +354,7 @@ export async function fetchTradeInventory(opts) {
         jsonChunks.push(data);
         logJson("steam_worker_partner_xhr", {
           accountId,
+          strict: isStrictPartnerCs2(url, partnerSteamId64),
           path: (() => {
             try {
               return new URL(url).pathname;
@@ -286,9 +367,12 @@ export async function fetchTradeInventory(opts) {
       jsonBodyTasks.push(task);
     });
 
-    const gotoMs = Math.min(25_000, Math.max(3000, timeLeft() - 500));
+    const gotoMs = Math.min(35_000, Math.max(5000, timeLeft() - 500));
     await page.goto(tradeUrlCanonical, { waitUntil: "domcontentloaded", timeout: gotoMs });
     lastInventoryJsonAt = Date.now();
+    await page
+      .waitForFunction(() => document.readyState === "complete", { timeout: 15_000, polling: 250 })
+      .catch(() => {});
 
     const aliveAfterGoto = await evaluateSteamSessionState(page);
     logJson("steam_worker_session_check", { accountId, phase: "after_goto", ...aliveAfterGoto });
@@ -303,7 +387,8 @@ export async function fetchTradeInventory(opts) {
       };
     }
 
-    const tradeUiMs = Math.min(55_000, Math.max(4000, timeLeft() - 3000));
+    const tradeUiMs = Math.min(120_000, Math.max(12_000, timeLeft() - 8000));
+    let skipUiNudge = false;
     try {
       await waitForTradeUi(page, tradeUiMs);
     } catch {
@@ -318,13 +403,27 @@ export async function fetchTradeInventory(opts) {
           timedOut: false,
         };
       }
-      throw new Error("trade_ui_timeout");
+      await Promise.allSettled(jsonBodyTasks);
+      const diag = await captureTradeUiDiagnostics(page);
+      logJson("steam_worker_trade_ui_wait_failed", { accountId, ...diag });
+      if (partnerCs2TradeOfferXhrSeen && jsonChunks.length > 0) {
+        logJson("steam_worker_trade_ui_xhr_fallback", {
+          accountId,
+          xhrCount: partnerInventoryXhrCount,
+          chunks: jsonChunks.length,
+        });
+        skipUiNudge = true;
+      } else {
+        throw new Error("trade_ui_timeout");
+      }
     }
 
-    await page.click("#trade_theirs .trade_item_box, #trade_theirs").catch(() => {});
-    await selectPartnerCs2Inventory(page);
-    await sleep(250);
-    await selectPartnerCs2Inventory(page);
+    if (!skipUiNudge) {
+      await page.click("#trade_theirs .trade_item_box, #trade_theirs").catch(() => {});
+      await selectPartnerCs2Inventory(page);
+      await sleep(250);
+      await selectPartnerCs2Inventory(page);
+    }
 
     const xhrDeadline = Math.min(Date.now() + partnerXhrWaitMs, deadline - 1000);
     while (Date.now() < xhrDeadline && timeLeft() > 500) {

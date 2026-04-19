@@ -3,7 +3,10 @@ import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteam
 import { logJson, logInventoryEvent } from "../utils/logger.js";
 import { InventoryCache } from "./inventoryCache.js";
 
-const TASK_TIMEOUT_MS = Math.min(120_000, Math.max(60_000, Number(process.env.STEAM_WORKER_TASK_TIMEOUT_MS) || 90_000));
+const TASK_TIMEOUT_MS = Math.min(
+  180_000,
+  Math.max(90_000, Number(process.env.STEAM_WORKER_TASK_TIMEOUT_MS) || 120_000),
+);
 
 /**
  * @param {import("../accounts/AccountPool.js").AccountPool} pool
