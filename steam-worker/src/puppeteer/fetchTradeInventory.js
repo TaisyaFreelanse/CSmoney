@@ -314,6 +314,8 @@ export async function fetchTradeInventory(opts) {
           accountId,
           error: e instanceof Error ? e.message : String(e),
         });
+      } finally {
+        await page.goto("about:blank", { waitUntil: "commit", timeout: 10_000 }).catch(() => {});
       }
     }
 

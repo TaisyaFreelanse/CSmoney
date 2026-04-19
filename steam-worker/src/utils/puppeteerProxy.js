@@ -49,17 +49,22 @@ export function puppeteerChromeArgs(extra = []) {
 }
 
 /**
- * After authenticate: one navigation to Bright Data geo JSON, log egress IP.
+ * After authenticate: optional navigation to check egress (Bright Data geo or STEAM_WORKER_PROXY_VERIFY_URL).
  * STEAM_WORKER_VERIFY_PROXY_IP=1
+ *
+ * Always returns the tab to about:blank afterwards so a failed/407/502 page does not break the next Steam goto.
  */
 export async function verifyBrightDataProxyIp(page, accountId) {
   const host = process.env.PROXY_HOST?.trim();
   if (!host || process.env.STEAM_WORKER_VERIFY_PROXY_IP !== "1") return;
+  const verifyUrl =
+    process.env.STEAM_WORKER_PROXY_VERIFY_URL?.trim() || "https://geo.brdtest.com/mygeo.json";
   try {
-    await page.goto("https://geo.brdtest.com/mygeo.json", {
+    const resp = await page.goto(verifyUrl, {
       waitUntil: "domcontentloaded",
       timeout: 18_000,
     });
+    const httpStatus = resp?.status() ?? 0;
     const text = await page.evaluate(() => document.body.innerText).catch(() => "");
     let ip = null;
     try {
@@ -70,14 +75,19 @@ export async function verifyBrightDataProxyIp(page, accountId) {
     }
     logJson("steam_worker_proxy_ip_verify", {
       accountId,
+      httpStatus,
+      verifyUrl: verifyUrl.length > 120 ? verifyUrl.slice(0, 120) : verifyUrl,
       ip,
       bodyPreview: text.length > 600 ? text.slice(0, 600) : text,
     });
   } catch (e) {
     logJson("steam_worker_proxy_ip_verify", {
       accountId,
+      verifyUrl: verifyUrl.length > 120 ? verifyUrl.slice(0, 120) : verifyUrl,
       error: e instanceof Error ? e.message : String(e),
     });
+  } finally {
+    await page.goto("about:blank", { waitUntil: "commit", timeout: 10_000 }).catch(() => {});
   }
 }
 
