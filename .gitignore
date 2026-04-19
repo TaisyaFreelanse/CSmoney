@@ -10,3 +10,6 @@ web/.env.*.local
 /id_ed25519
 /id_rsa
 *.pem
+
+# one-off Steam profile export (do not commit)
+/acc1-for-render.tar.gz

@@ -11,12 +11,14 @@
 
 import https from "node:https";
 
+import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "./steam-community-url";
 import {
   logSteamProfilesStorageHint,
   recordSteamProfileSuccess,
   resolveOwnerPuppeteerAccount,
 } from "./steam-puppeteer-accounts";
-import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "./steam-community-url";
+import { isSteamInventoryRemoteWorkerOnly } from "./steam-inventory-remote-only";
+import type { SteamWorkerInventoryBody } from "./steam-worker-inventory-client";
 
 export {
   normalizeSteamId64ForCache,
@@ -894,7 +896,7 @@ async function fetchSteamInventoryRaw(
 // Public API
 // ---------------------------------------------------------------------------
 
-export type OwnerInventoryPrimarySource = "trade_url" | "api" | "snapshot";
+export type OwnerInventoryPrimarySource = "trade_url" | "api" | "snapshot" | "remote_worker";
 
 export type FetchOwnerInventoryOptions = { forceRefresh?: boolean };
 
@@ -919,9 +921,11 @@ function ownerTradeOfferPuppeteerStrikeCandidate(p: {
 }
 
 /**
- * Owner store inventory from Steam (Puppeteer trade URL + API merge, or API-only).
- * By default reads existing Redis/memory snapshot if present — no browser/API round-trip.
- * Pass `forceRefresh: true` after invalidating cache or for admin refresh jobs.
+ * Owner store inventory.
+ * - Локально: Community API ± Puppeteer trade merge (см. `OWNER_TRADE_URL`, профили).
+ * - На Render (`RENDER=true`) или `STEAM_INVENTORY_REMOTE_WORKER_ONLY=1`: только HTTP к steam-worker + `normalizeInventory(body.raw)`; нужны `STEAM_INVENTORY_WORKER_*` и `OWNER_TRADE_URL`.
+ * По умолчанию читает Redis/memory snapshot без похода в Steam/worker.
+ * `forceRefresh: true` — принудительное обновление (worker или локальный пайплайн).
  */
 export async function fetchOwnerInventory(
   options?: FetchOwnerInventoryOptions,
@@ -942,6 +946,52 @@ export async function fetchOwnerInventory(
         ownerInventoryPrimarySource: "snapshot",
       };
     }
+  }
+
+  if (isSteamInventoryRemoteWorkerOnly()) {
+    const tradeUrlRw = process.env.OWNER_TRADE_URL?.trim();
+    if (!tradeUrlRw) {
+      return { ok: false, error: "missing_owner_trade_url" };
+    }
+    const { fetchSteamWorkerInventoryDirect } = await import("@/lib/steam-worker-inventory-client");
+    console.log(
+      JSON.stringify({
+        type: "owner_inv_remote_worker",
+        event: "fetch_start",
+        ownerSteamId: normalizeSteamId64ForCache(ownerSteamId),
+        ts: Date.now(),
+      }),
+    );
+    let httpRes: { httpStatus: number; body: SteamWorkerInventoryBody };
+    try {
+      httpRes = await fetchSteamWorkerInventoryDirect({
+        tradeUrl: tradeUrlRw,
+        steamId: ownerSteamId,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ok: false,
+        error: msg.includes("STEAM_INVENTORY_WORKER") ? "worker_not_configured" : "worker_unreachable",
+      };
+    }
+    const { httpStatus, body } = httpRes;
+    if (httpStatus >= 400 || body.error) {
+      return {
+        ok: false,
+        error: typeof body.error === "string" ? body.error : `worker_http_${httpStatus}`,
+      };
+    }
+    const raw = body.raw;
+    if (!raw || typeof raw !== "object") {
+      return { ok: false, error: "worker_missing_raw_inventory" };
+    }
+    const items = normalizeInventory(raw, ownerSteamId);
+    return {
+      ok: true,
+      items,
+      ownerInventoryPrimarySource: "remote_worker",
+    };
   }
 
   const ctx = resolveOwnerInventoryContextId();
@@ -1120,6 +1170,9 @@ export async function fetchOwnerInventory(
 export async function fetchGuestInventory(
   tradeUrl: string,
 ): Promise<{ ok: true; items: NormalizedItem[] } | { ok: false; error: string }> {
+  if (isSteamInventoryRemoteWorkerOnly()) {
+    return { ok: false, error: "use_guest_inventory_load_service_on_remote_worker" };
+  }
   const parsed = parseTradeUrl(tradeUrl);
   if (!parsed) return { ok: false, error: "invalid_trade_url" };
 
@@ -1131,6 +1184,9 @@ export async function fetchGuestInventory(
 export async function fetchGuestInventoryBySteamId64(
   steamId64: string,
 ): Promise<{ ok: true; items: NormalizedItem[] } | { ok: false; error: string }> {
+  if (isSteamInventoryRemoteWorkerOnly()) {
+    return { ok: false, error: "steam_community_api_disabled_on_remote_worker" };
+  }
   const result = await fetchSteamInventoryRaw(steamId64, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
   if (!result.ok) return result;
   return { ok: true, items: normalizeInventory(result.data, steamId64) };

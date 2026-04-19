@@ -7,9 +7,11 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 patchDatabaseUrlForRenderPostgres();
 
-/** Chrome from build lives under web/.puppeteer-chrome so it ships with the slug (not ~/.cache). */
+/** Chrome cache — only when Puppeteer may run locally (not on Render remote-inventory mode). */
+const skipPuppeteerCache =
+  process.env.PUPPETEER_SKIP_BROWSER_INSTALL === "1" || process.env.RENDER === "true";
 const puppeteerCache = path.resolve(root, ".puppeteer-chrome");
-if (!process.env.PUPPETEER_CACHE_DIR?.trim()) {
+if (!skipPuppeteerCache && !process.env.PUPPETEER_CACHE_DIR?.trim()) {
   process.env.PUPPETEER_CACHE_DIR = puppeteerCache;
 }
 

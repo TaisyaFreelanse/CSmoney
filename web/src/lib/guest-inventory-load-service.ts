@@ -1,6 +1,8 @@
 import "server-only";
 
 import { enrichNewItemsWithCsFloat } from "@/lib/csfloat";
+import { isSteamInventoryRemoteWorkerOnly } from "@/lib/steam-inventory-remote-only";
+import { fetchSteamWorkerInventoryDirect, type SteamWorkerInventoryBody } from "@/lib/steam-worker-inventory-client";
 import {
   ensureGuestPuppeteerCookiesLoggedOnce,
   fetchGuestInventoryViaTradeOfferPuppeteer,
@@ -55,7 +57,7 @@ export type GuestInventoryLoadFlags = {
   retryAfterMs?: number;
   needsRefreshWarning?: boolean;
   /** Основной источник списка: trade-offer (полный), API, или смесь после merge. */
-  guestInventoryPrimarySource?: "trade_url" | "api" | "mixed";
+  guestInventoryPrimarySource?: "trade_url" | "api" | "mixed" | "remote_worker";
   /** Снимок устарел по TTL — запланирован фоновый refresh (ответ не ждёт Steam). */
   backgroundRevalidateScheduled?: boolean;
 };
@@ -68,7 +70,7 @@ function nextIso(ms: number): string {
   return new Date(Date.now() + ms).toISOString();
 }
 
-type GuestInvFetchSource = "browser" | "api";
+type GuestInvFetchSource = "browser" | "api" | "remote_worker";
 
 function logSteamFetch(args: {
   source: GuestInvFetchSource;
@@ -274,8 +276,9 @@ function queueFullResponse(
 }
 
 /**
- * Guest CS2 inventory: сначала Steam Community API (пагинация, float/phase), затем trade URL (Puppeteer) для добора,
- * merge по assetId с приоритетом API; CSFloat — только если у предмета ещё нет float (кэш по inspect link).
+ * Guest CS2 inventory:
+ * - Локально (по умолчанию): Steam Community API, затем trade URL (Puppeteer) для добора, merge; CSFloat при необходимости.
+ * - На Render (`RENDER=true`) или при `STEAM_INVENTORY_REMOTE_WORKER_ONLY=1`: только HTTP к steam-worker (без Steam HTTPS / Puppeteer на Next); CSFloat на этом хосте не вызывается.
  */
 export async function loadGuestInventoryForUser(args: {
   userSteamId: string;
@@ -297,6 +300,169 @@ export async function loadGuestInventoryForUser(args: {
     console.error("[guest-inv-load] unhandled", e);
     return { ok: false, error: "guest_inventory_unavailable", flags };
   }
+}
+
+type GuestSnapshotRow = NonNullable<Awaited<ReturnType<typeof getGuestSnapshotEntry>>>;
+
+/**
+ * Render / remote orchestrator: one HTTP call to Hetzner steam-worker (no Steam HTTPS, no Puppeteer on this host).
+ */
+async function runGuestInventoryRemoteWorkerLoad(
+  args: {
+    userSteamId: string;
+    tradeUrl: string;
+    guestTargetSteamId: string;
+    mode: "get" | "force_refresh" | "trade_validate";
+    bypassGuestFetchCooldown?: boolean;
+  },
+  flags: GuestInventoryLoadFlags,
+  snapshotSteamId: string,
+  snap: GuestSnapshotRow | null,
+  tradeUrlTrimmed: string,
+): Promise<GuestInventoryLoadResult> {
+  const { userSteamId, mode } = args;
+  const steamId64 = snapshotSteamId;
+  const skipUserRefreshMark = mode === "force_refresh";
+  const pipelineT0 = Date.now();
+
+  logGuestInvPipeline("remote_worker_invoke", {
+    source: "steam_worker",
+    mode,
+    snapshotSteamId,
+  });
+
+  const t0 = Date.now();
+  let httpRes: { httpStatus: number; body: SteamWorkerInventoryBody };
+  try {
+    httpRes = await fetchSteamWorkerInventoryDirect({
+      tradeUrl: tradeUrlTrimmed,
+      steamId: steamId64,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const err = msg.includes("STEAM_INVENTORY_WORKER") ? "worker_not_configured" : "worker_unreachable";
+    logSteamFetch({
+      source: "remote_worker",
+      result: "error",
+      durationMs: Date.now() - t0,
+      queued: false,
+      mode,
+      detail: err,
+    });
+    return { ok: false, error: err, flags };
+  }
+
+  const { httpStatus, body } = httpRes;
+  const okHttp = httpStatus >= 200 && httpStatus < 300 && !body.error;
+  const errStr = typeof body.error === "string" ? body.error : "";
+
+  if (httpStatus === 429 || errStr === "queue_overflow") {
+    await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
+    applyUnstable(flags);
+    logSteamFetch({
+      source: "remote_worker",
+      result: "skipped_queue_full",
+      durationMs: Date.now() - t0,
+      queued: false,
+      mode,
+    });
+    return queueFullResponse(snap, flags);
+  }
+
+  if (httpStatus === 503 && errStr.includes("no worker")) {
+    logSteamFetch({
+      source: "remote_worker",
+      result: "skipped_queue_full",
+      durationMs: Date.now() - t0,
+      queued: false,
+      mode,
+      detail: errStr,
+    });
+    return queueFullResponse(snap, flags);
+  }
+
+  const raw = body.raw;
+  let merged: NormalizedItem[] = [];
+  if (raw && typeof raw === "object") {
+    merged = normalizeInventory(raw, steamId64);
+  }
+
+  if (!okHttp || merged.length === 0) {
+    logSteamFetch({
+      source: "remote_worker",
+      result: errStr.includes("private") ? "private" : "unstable",
+      durationMs: Date.now() - t0,
+      queued: false,
+      mode,
+      itemCount: merged.length || undefined,
+      detail: errStr || `http_${httpStatus}`,
+    });
+    if (httpStatus === 429 || isSteamRateLimited(errStr)) {
+      await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
+      applyUnstable(flags);
+    }
+    if (snap && snap.items.length > 0) {
+      const age = Date.now() - snap.fetchedAt;
+      if (age > STALE_WARNING_MS) flags.needsRefreshWarning = true;
+      return { ok: true, items: snap.items, flags };
+    }
+    if (!okHttp) {
+      return { ok: false, error: errStr || "guest_inventory_unavailable", flags };
+    }
+    return { ok: false, error: "worker_empty_inventory", flags };
+  }
+
+  logSteamFetch({
+    source: "remote_worker",
+    result: "success",
+    durationMs: Date.now() - t0,
+    queued: false,
+    mode,
+    itemCount: merged.length,
+  });
+
+  const csSkip = {
+    totalItems: merged.length,
+    newWithoutApi: 0,
+    sentToCsfloat: 0,
+    cacheHits: 0,
+    enriched: 0,
+    failed: 0,
+    durationMs: 0,
+    keyRotations: 0,
+  };
+  logGuestInvPipeline("guest_inv_load_complete", {
+    mode,
+    snapshotSteamId,
+    primarySource: "remote_worker",
+    totalItems: merged.length,
+    apiItemCount: 0,
+    newWithoutApi: csSkip.newWithoutApi,
+    csfloatSent: csSkip.sentToCsfloat,
+    csfloatCacheHits: csSkip.cacheHits,
+    csfloatEnriched: csSkip.enriched,
+    durationMs: Date.now() - pipelineT0,
+  });
+  console.log(
+    JSON.stringify({
+      type: "guest_inv_task",
+      status: "done",
+      snapshotSteamId,
+      primarySource: "remote_worker",
+      totalItems: merged.length,
+      newWithoutApi: csSkip.newWithoutApi,
+      csfloatSent: csSkip.sentToCsfloat,
+      durationMs: Date.now() - pipelineT0,
+    }),
+  );
+
+  await setCache(snapshotSteamId, merged);
+  if (!skipUserRefreshMark) {
+    await markUserRefreshed(userSteamId);
+  }
+
+  flags.guestInventoryPrimarySource = "remote_worker";
+  return { ok: true, items: merged, flags };
 }
 
 async function runGuestInventoryLoad(
@@ -383,6 +549,10 @@ async function runGuestInventoryLoad(
     flags.nextRefreshAt = nextIso(cdRemaining);
     flags.retryAfterMs = cdRemaining;
     return { ok: false, error: "cooldown_active", flags };
+  }
+
+  if (isSteamInventoryRemoteWorkerOnly()) {
+    return runGuestInventoryRemoteWorkerLoad(args, flags, snapshotSteamId, snap, tradeUrl.trim());
   }
 
   ensureGuestPuppeteerCookiesLoggedOnce();

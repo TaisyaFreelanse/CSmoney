@@ -22,6 +22,8 @@ export type SteamWorkerInventoryMeta = {
 
 export type SteamWorkerInventoryBody = {
   items: unknown[];
+  /** Merged Steam inventory JSON (assets + descriptions + asset_properties) for web-side `normalizeInventory`. */
+  raw?: unknown;
   source: string | null;
   accountId: string | null;
   durationMs: number;

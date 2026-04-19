@@ -157,6 +157,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         status: 200,
         body: {
           items: cached.items,
+          raw: cached.raw ?? null,
           source: "trade",
           accountId: cached.accountId ?? "cache",
           durationMs: 0,
@@ -268,13 +269,19 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       });
       const body = {
         items: outcome.items,
+        raw: outcome.raw ?? null,
         source: "trade",
         accountId: outcome.accountId,
         durationMs: outcome.durationMs,
         error: null,
         meta,
       };
-      cache.set(canonical, { items: outcome.items, accountId: outcome.accountId, meta });
+      cache.set(canonical, {
+        items: outcome.items,
+        accountId: outcome.accountId,
+        meta,
+        raw: outcome.raw ?? null,
+      });
       logInventoryEvent("complete", {
         jobId,
         accountId: outcome.accountId,
@@ -310,6 +317,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       status,
       body: {
         items: outcome.items ?? [],
+        raw: outcome.raw ?? null,
         source: "trade",
         accountId: outcome.accountId ?? null,
         durationMs: outcome.durationMs ?? 0,
