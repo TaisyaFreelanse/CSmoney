@@ -7,8 +7,12 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
+  /**
+   * Repo root (parent of `web/`) so Turbopack resolves `web/src/lib` → `shared/` imports.
+   * Do not set this to `web` only — that breaks `../../../shared/*.js` and fails production build.
+   */
   turbopack: {
-    root: path.join(__dirname),
+    root: path.join(__dirname, ".."),
   },
 };
 
