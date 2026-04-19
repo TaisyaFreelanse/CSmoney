@@ -642,6 +642,7 @@ export function normalizeInventory(
 function httpsGet(
   url: string,
   headers: Record<string, string> = {},
+  timeoutMs = 15_000,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const req = https.get(url, { headers }, (res) => {
@@ -655,11 +656,50 @@ function httpsGet(
       });
     });
     req.on("error", reject);
-    req.setTimeout(15_000, () => {
+    req.setTimeout(timeoutMs, () => {
       req.destroy();
       reject(new Error("timeout"));
     });
   });
+}
+
+function sleepSteam(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Inventory JSON pages can be large; retry 429 / transient errors like steam-worker. */
+async function httpsGetInventoryPageWithRetries(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  const timeoutMs = Math.min(
+    120_000,
+    Math.max(25_000, parseInt(process.env.STEAM_INVENTORY_HTTPS_TIMEOUT_MS ?? "55000", 10) || 55_000),
+  );
+  const maxAttempts = Math.min(
+    40,
+    Math.max(4, parseInt(process.env.STEAM_INVENTORY_PAGE_MAX_ATTEMPTS ?? "18", 10) || 18),
+  );
+  let delay = 700;
+  let last: { status: number; body: string } = { status: 0, body: "" };
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const res = await httpsGet(url, headers, timeoutMs);
+      last = res;
+      if (res.status === 429) {
+        console.warn(`[steam-inv] community-new 429 retry attempt=${i + 1}`);
+        await sleepSteam(Math.min(15_000, delay));
+        delay = Math.min(Math.floor(delay * 1.55), 15_000);
+        continue;
+      }
+      return res;
+    } catch (e) {
+      console.warn(`[steam-inv] community-new fetch retry attempt=${i + 1}`, e);
+      await sleepSteam(Math.min(12_000, delay));
+      delay = Math.min(Math.floor(delay * 1.45), 12_000);
+    }
+  }
+  return last;
 }
 
 // ---------------------------------------------------------------------------
@@ -686,29 +726,36 @@ async function fetchViaCommunityNew(
   const allAssetProps: unknown[] = [];
   const descMap = new Map<string, unknown>();
   let startAssetId: string | undefined;
-  /** Steam caps pages (~500–2000 assets); large backpacks need many requests. */
-  const MAX_PAGES = Math.min(
-    200,
-    Math.max(1, parseInt(process.env.STEAM_INVENTORY_COMMUNITY_MAX_PAGES ?? "80", 10) || 80),
-  );
+  const rawMax = process.env.STEAM_INVENTORY_COMMUNITY_MAX_PAGES?.trim();
+  const MAX_PAGES =
+    rawMax === "0" || rawMax === "unlimited"
+      ? 2000
+      : Math.min(2000, Math.max(1, parseInt(process.env.STEAM_INVENTORY_COMMUNITY_MAX_PAGES ?? "400", 10) || 400));
+
+  let lastPageHadMore = false;
+  let steamTotal: number | null = null;
 
   for (let page = 0; page < MAX_PAGES; page++) {
     let url = `https://steamcommunity.com/inventory/${steamId64}/${CS2_APP_ID}/${contextId}?l=english&count=2000`;
     if (startAssetId) url += `&start_assetid=${startAssetId}`;
 
     try {
-      const { status, body } = await httpsGet(url, BROWSER_HEADERS);
+      const { status, body } = await httpsGetInventoryPageWithRetries(url, BROWSER_HEADERS);
       if (status === 403) return { ok: false, error: "private_inventory" };
       if (status === 429) return { ok: false, error: "steam_rate_limit" };
       if (status !== 200) {
         console.error(`[steam-inv] community-new HTTP ${status}: ${body.slice(0, 300)}`);
+        if (allAssets.length > 0) break;
         return { ok: false, error: `steam_http_${status}` };
       }
-      const json = JSON.parse(body);
+      const json = JSON.parse(body) as Record<string, unknown>;
       if (page === 0 && !json?.assets && !json?.descriptions) {
         console.error(`[steam-inv] community-new empty:`, body.slice(0, 300));
         return { ok: false, error: "empty_inventory" };
       }
+
+      const t = Number(json.total_inventory_count);
+      if (Number.isFinite(t) && t > 0) steamTotal = t;
 
       if (Array.isArray(json.assets)) {
         allAssets.push(...json.assets);
@@ -723,12 +770,18 @@ async function fetchViaCommunityNew(
         }
       }
 
-      console.log(`[steam-inv] community-new page=${page}: +${json.assets?.length ?? 0} assets (total=${allAssets.length}, more=${json.more_items ?? 0}, steam_total=${json.total_inventory_count ?? "?"})`);
+      const more = json.more_items === true;
+      const lastId = json.last_assetid != null ? String(json.last_assetid) : "";
+      lastPageHadMore = more && Boolean(lastId);
+
+      console.log(
+        `[steam-inv] community-new page=${page}: +${(json.assets as unknown[])?.length ?? 0} assets (total=${allAssets.length}, more=${String(json.more_items ?? false)}, steam_total=${json.total_inventory_count ?? "?"})`,
+      );
       if (page === 0) {
-        const sample = (json.assets ?? []).slice(0, 5);
+        const sample = ((json.assets as unknown[]) ?? []).slice(0, 5);
         for (const a of sample) {
           const asset = a as Record<string, unknown>;
-          const desc = (json.descriptions ?? []).find((d: Record<string, unknown>) => {
+          const desc = ((json.descriptions as Record<string, unknown>[]) ?? []).find((d: Record<string, unknown>) => {
             return d.classid === asset.classid && d.instanceid === asset.instanceid;
           });
           if (desc)
@@ -738,8 +791,23 @@ async function fetchViaCommunityNew(
         }
       }
 
-      if (!json.more_items || !json.last_assetid) break;
-      startAssetId = json.last_assetid;
+      if (!more || !lastId) break;
+
+      if (String(startAssetId) === lastId) {
+        console.warn(`[steam-inv] community-new pagination stuck on last_assetid=${lastId}`);
+        break;
+      }
+
+      if (steamTotal != null && steamTotal > 0 && allAssets.length >= steamTotal) break;
+
+      startAssetId = lastId;
+
+      if (page + 1 >= MAX_PAGES && lastPageHadMore) {
+        console.warn(
+          `[steam-inv] community-new INCOMPLETE: hit MAX_PAGES=${MAX_PAGES} with more_items still true (assets=${allAssets.length}, steam_total=${steamTotal ?? "?"})`,
+        );
+        break;
+      }
     } catch (e) {
       console.error(`[steam-inv] community-new error (page=${page}):`, e);
       if (allAssets.length > 0) break;
@@ -749,6 +817,12 @@ async function fetchViaCommunityNew(
 
   if (allAssets.length === 0) {
     return { ok: false, error: "empty_inventory" };
+  }
+
+  if (lastPageHadMore || (steamTotal != null && steamTotal > 0 && allAssets.length < steamTotal)) {
+    console.warn(
+      `[steam-inv] community-new partial/incomplete: assets=${allAssets.length}, steam_total=${steamTotal ?? "?"}, lastPageHadMore=${lastPageHadMore}`,
+    );
   }
 
   console.log(`[steam-inv] community-new TOTAL: ${allAssets.length} assets, ${descMap.size} descriptions`);

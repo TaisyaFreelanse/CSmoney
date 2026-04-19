@@ -13,38 +13,13 @@ import {
   puppeteerHeadless,
   verifyBrightDataProxyIp,
 } from "../utils/puppeteerProxy.js";
+import { scrollPartnerInventoryPane } from "../../../shared/partner-inventory-scroll.js";
 
 const TARGET_APPID = 730;
 const TARGET_CONTEXTID = 2;
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
-}
-
-/** Nudge Steam trade UI to request the next inventory page when `more_items` is true. */
-async function scrollPartnerInventoryForPagination(page) {
-  await page
-    .evaluate(() => {
-      const tryScroll = (el) => {
-        if (!el || typeof el.scrollTop !== "number") return false;
-        const prev = el.scrollTop;
-        el.scrollTop = Math.min(el.scrollHeight, el.scrollTop + 900);
-        return el.scrollTop > prev;
-      };
-      const candidates = [
-        document.querySelector("#trade_theirs .inventory_ctn"),
-        document.querySelector("#trade_theirs .inventory_page"),
-        document.querySelector("#inventories .inventory_ctn"),
-        document.querySelector("#inventories"),
-        document.querySelector("#trade_theirs"),
-      ].filter(Boolean);
-      for (const el of candidates) {
-        if (tryScroll(el)) return true;
-      }
-      window.scrollBy(0, 500);
-      return true;
-    })
-    .catch(() => {});
 }
 
 function isStrictPartnerCs2(url, expectedSteam64) {
@@ -263,6 +238,7 @@ export async function fetchTradeInventory(opts) {
     accountId,
     partnerXhrWaitMs: partnerXhrWaitMsOpt,
     prefetchedInventoryChunks = [],
+    apiInventoryMeta = null,
   } = opts;
 
   const taskTimeoutMs = Math.min(
@@ -497,13 +473,21 @@ export async function fetchTradeInventory(opts) {
     const prefetchMergedEarly = mergeCommunityInventoryJson([...prefetchedInventoryChunks]);
     const prefetchAssetCountEarly = prefetchMergedEarly.assets?.length ?? 0;
 
-    if (!partnerCs2TradeOfferXhrSeen && prefetchAssetCountEarly > 0) {
+    const steamTotal = apiInventoryMeta?.steamTotalInventoryCount;
+    const apiLooksCompleteForSkip =
+      apiInventoryMeta?.paginationComplete === true &&
+      (steamTotal == null ||
+        steamTotal <= 0 ||
+        (typeof prefetchAssetCountEarly === "number" && prefetchAssetCountEarly >= steamTotal));
+
+    if (!partnerCs2TradeOfferXhrSeen && prefetchAssetCountEarly > 0 && apiLooksCompleteForSkip) {
       partnerCs2TradeOfferXhrSeen = true;
       lastResponseHadMoreItems = false;
       lastInventoryJsonAt = Date.now();
       logJson("steam_worker_inventory_trade_xhr_skipped_prefetch_ok", {
         accountId,
         prefetchAssets: prefetchAssetCountEarly,
+        steamTotal: steamTotal ?? null,
       });
     }
 
@@ -511,7 +495,8 @@ export async function fetchTradeInventory(opts) {
       const alive = await evaluateSteamSessionState(page);
       const sessionDead = alive.loginWall || !alive.tradeSurfacePresent;
       const noPartnerXhr = partnerInventoryXhrCount === 0 && !receivedInventoryJsonPayload;
-      if (sessionDead || noPartnerXhr) {
+
+      if (sessionDead || (noPartnerXhr && prefetchAssetCountEarly === 0)) {
         logJson("steam_worker_session_invalid", { accountId, sessionDead, noPartnerXhr });
         return {
           ok: false,
@@ -522,6 +507,27 @@ export async function fetchTradeInventory(opts) {
           timedOut: false,
         };
       }
+
+      if (prefetchAssetCountEarly > 0 && alive.tradeSurfacePresent) {
+        const mergedPartial = mergeCommunityInventoryJson([...prefetchedInventoryChunks]);
+        const partialItems = mergedToItems(mergedPartial);
+        logJson("steam_worker_inventory_incomplete_no_trade_xhr", {
+          accountId,
+          prefetchAssets: prefetchAssetCountEarly,
+          paginationComplete: apiInventoryMeta?.paginationComplete ?? null,
+          stoppedReason: apiInventoryMeta?.stoppedReason ?? null,
+        });
+        return {
+          ok: false,
+          error: "inventory_incomplete_no_trade_xhr",
+          detail: "api_incomplete_or_partnerinventory_xhr_missing",
+          items: partialItems,
+          raw: mergedPartial,
+          sessionInvalid: false,
+          timedOut: true,
+        };
+      }
+
       return {
         ok: false,
         error: "timeout",
@@ -550,7 +556,7 @@ export async function fetchTradeInventory(opts) {
 
       if (lastResponseHadMoreItems && idle >= stallWhileMoreMs && scrollRounds < maxScrollRounds) {
         scrollRounds += 1;
-        await scrollPartnerInventoryForPagination(page);
+        await scrollPartnerInventoryPane(page);
         await selectPartnerCs2Inventory(page).catch(() => {});
         lastInventoryJsonAt = Date.now();
         await sleep(350);

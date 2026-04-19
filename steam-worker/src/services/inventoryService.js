@@ -23,6 +23,10 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       logJson("steam_worker_inventory_api_prefetch_ok", {
         accountId: account.id,
         pages: apiPull.chunks.length,
+        paginationComplete: apiPull.meta?.paginationComplete,
+        stoppedReason: apiPull.meta?.stoppedReason,
+        mergedAssetCount: apiPull.meta?.mergedAssetCount,
+        steamTotal: apiPull.meta?.steamTotalInventoryCount ?? null,
       });
     } else {
       logJson("steam_worker_inventory_api_prefetch_skip", {
@@ -31,6 +35,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       });
     }
     const prefetchedInventoryChunks = apiPull.ok ? apiPull.chunks : [];
+    const apiInventoryMeta = apiPull.ok ? apiPull.meta : null;
 
     const r = await fetchTradeInventory({
       tradeUrlCanonical: canonical,
@@ -39,6 +44,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       accountId: account.id,
       taskTimeoutMs: TASK_TIMEOUT_MS,
       prefetchedInventoryChunks,
+      apiInventoryMeta,
       partnerXhrWaitMs: Math.min(
         90_000,
         Math.max(30_000, Number(process.env.STEAM_WORKER_PARTNER_XHR_WAIT_MS) || 60_000),

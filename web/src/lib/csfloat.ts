@@ -27,9 +27,16 @@ const PAINT_INDEX_PHASE: Record<number, string> = {
 };
 
 const CACHE_PREFIX = "csmoney:csfloat:inspect:";
-const TTL_SEC = 7 * 24 * 3600;
+/** Default 365d — no repeat CSFloat HTTP for the same inspect link unless key is deleted. */
+const TTL_SEC = Math.min(
+  10 * 365 * 24 * 3600,
+  Math.max(24 * 3600, parseInt(process.env.CSFLOAT_INSPECT_CACHE_TTL_SEC ?? String(365 * 24 * 3600), 10) || 365 * 24 * 3600),
+);
 
-const memoryInspectCache = new Map<string, InspectData>();
+const memoryInspectCache = new Map<string, InspectData & { tombstone?: boolean }>();
+
+/** In-flight CSFloat fetches keyed by inspect link (dedupe concurrent enrich passes). */
+const inspectInflight = new Map<string, Promise<InspectData | null>>();
 
 const CSFLOAT_MAX_PARALLEL = Math.max(
   1,
@@ -77,6 +84,8 @@ export interface InspectData {
   floatValue: number;
   paintIndex: number;
   paintSeed: number;
+  /** If true, CSFloat was already queried with no usable payload — never call API again for this inspect link. */
+  tombstone?: boolean;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -123,7 +132,7 @@ function cacheKeyForInspectLink(link: string): string {
   return `${CACHE_PREFIX}${h}`;
 }
 
-async function readInspectCache(link: string): Promise<InspectData | null> {
+async function readInspectCache(link: string): Promise<(InspectData & { tombstone?: boolean }) | null> {
   const mem = memoryInspectCache.get(link);
   if (mem) return mem;
 
@@ -132,7 +141,7 @@ async function readInspectCache(link: string): Promise<InspectData | null> {
   try {
     const raw = await r.get(cacheKeyForInspectLink(link));
     if (raw == null || raw === "") return null;
-    const parsed = JSON.parse(raw) as InspectData;
+    const parsed = JSON.parse(raw) as InspectData & { tombstone?: boolean };
     if (
       parsed &&
       typeof parsed.floatValue === "number" &&
@@ -148,7 +157,7 @@ async function readInspectCache(link: string): Promise<InspectData | null> {
   }
 }
 
-async function writeInspectCache(link: string, data: InspectData): Promise<void> {
+async function writeInspectCache(link: string, data: InspectData & { tombstone?: boolean }): Promise<void> {
   memoryInspectCache.set(link, data);
   const r = getRedis();
   if (!r) return;
@@ -157,6 +166,17 @@ async function writeInspectCache(link: string, data: InspectData): Promise<void>
   } catch {
     /* ignore */
   }
+}
+
+/** After exhausting CSFloat without usable payload — blocks repeat HTTP for this inspect link. */
+async function writeInspectTombstone(link: string): Promise<void> {
+  const row: InspectData & { tombstone: boolean } = {
+    floatValue: 0,
+    paintIndex: 0,
+    paintSeed: 0,
+    tombstone: true,
+  };
+  await writeInspectCache(link, row);
 }
 
 async function fetchFromCsFloatOnce(
@@ -254,6 +274,7 @@ export function mergeInspectCache(
   for (const item of items) {
     const data = memoryInspectCache.get(item.inspectLink ?? "");
     if (!data || !item.inspectLink) continue;
+    if (data.tombstone) continue;
     if (data.floatValue > 0) item.floatValue = data.floatValue;
     const phase = phaseFromPaintIndex(data.paintIndex, item.marketHashName);
     if (phase) item.phaseLabel = phase;
@@ -307,7 +328,7 @@ export async function enrichNewItemsWithCsFloat(
     JSON.stringify({
       type: "csfloat_enrich_start",
       keysConfigured: keys.length,
-      inspectCacheTtlDays: TTL_SEC / (24 * 3600),
+      inspectCacheTtlSec: TTL_SEC,
       apiAssetIdCount: apiAssetIds.size,
       itemsNeedingFloatRequest: targets.length,
       newWithoutApiCount: newWithoutApi,
@@ -327,6 +348,9 @@ export async function enrichNewItemsWithCsFloat(
     const cached = await readInspectCache(link);
     if (cached) {
       cacheHits++;
+      if (cached.tombstone) {
+        continue;
+      }
       if (cached.floatValue > 0) item.floatValue = cached.floatValue;
       const ph = phaseFromPaintIndex(cached.paintIndex, item.marketHashName);
       if (ph) item.phaseLabel = ph;
@@ -340,21 +364,34 @@ export async function enrichNewItemsWithCsFloat(
       continue;
     }
 
-    sentToCsfloat++;
-    const data = await fetchInspectDataFromApi(params.s, params.a, params.d);
+    let inflight = inspectInflight.get(link);
+    if (!inflight) {
+      inflight = (async (): Promise<InspectData | null> => {
+        sentToCsfloat++;
+        const data = await fetchInspectDataFromApi(params.s, params.a, params.d);
+        if (data === null) {
+          await writeInspectTombstone(link);
+          return null;
+        }
+        await writeInspectCache(link, data);
+        return data;
+      })();
+      inspectInflight.set(link, inflight);
+      inflight.finally(() => {
+        inspectInflight.delete(link);
+      });
+    }
+
+    const data = await inflight;
     if (data === null) {
       failed++;
+      await sleep(80);
       continue;
     }
-    if (data.floatValue > 0 || data.paintIndex > 0) {
-      await writeInspectCache(link, data);
-      if (data.floatValue > 0) item.floatValue = data.floatValue;
-      const ph = phaseFromPaintIndex(data.paintIndex, item.marketHashName);
-      if (ph) item.phaseLabel = ph;
-      enriched++;
-    } else {
-      failed++;
-    }
+    if (data.floatValue > 0) item.floatValue = data.floatValue;
+    const ph = phaseFromPaintIndex(data.paintIndex, item.marketHashName);
+    if (ph) item.phaseLabel = ph;
+    enriched++;
 
     await sleep(120);
   }

@@ -12,6 +12,7 @@ import {
   logSteamProfilesStorageHint,
   resolveSteamPuppeteerUserDataDir,
 } from "@/lib/steam-puppeteer-accounts";
+import { scrollPartnerInventoryPane } from "../../../shared/partner-inventory-scroll.js";
 import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
 
 const LOG = "[guest-inv-puppeteer]";
@@ -1237,27 +1238,7 @@ async function runTradeOfferPuppeteerInventory(
         if (lastResponseHadMoreItems && idle >= INVENTORY_JSON_STALL_WHILE_MORE_MS && n > 0) {
           if (guestPartnerInvScrollRounds < GUEST_PARTNER_INV_MAX_SCROLL && timeLeft() > 2500) {
             guestPartnerInvScrollRounds += 1;
-            await page
-              .evaluate(() => {
-                const tryScroll = (el: Element | null) => {
-                  if (!el || typeof (el as HTMLElement).scrollTop !== "number") return false;
-                  const h = el as HTMLElement;
-                  const prev = h.scrollTop;
-                  h.scrollTop = Math.min(h.scrollHeight, h.scrollTop + 900);
-                  return h.scrollTop > prev;
-                };
-                for (const sel of [
-                  "#trade_theirs .inventory_ctn",
-                  "#trade_theirs .inventory_page",
-                  "#inventories .inventory_ctn",
-                  "#inventories",
-                  "#trade_theirs",
-                ]) {
-                  if (tryScroll(document.querySelector(sel))) return;
-                }
-                window.scrollBy(0, 500);
-              })
-              .catch(() => {});
+            await scrollPartnerInventoryPane(page);
             await selectPartnerCs2Inventory(page);
             lastInventoryJsonAt = Date.now();
             await sleepMs(320);
