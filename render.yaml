@@ -55,6 +55,22 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
+      # Hetzner steam-worker: Render proxies GET /api/steam-worker/inventory (optional async jobs use same Redis).
+      - key: STEAM_INVENTORY_WORKER_BASE_URL
+        sync: false
+      - key: STEAM_INVENTORY_WORKER_API_KEY
+        sync: false
+      # Same value as worker API_KEY; optional internal cron header for proxy routes.
+      - key: STEAM_INVENTORY_PROXY_CRON_SECRET
+        sync: false
+      - key: STEAM_INVENTORY_WORKER_HTTP_TIMEOUT_MS
+        sync: false
+      - key: STEAM_INVENTORY_WORKER_HTTP_RETRIES
+        sync: false
+      - key: STEAM_INVENTORY_WORKER_PROXY_CACHE_TTL_SEC
+        sync: false
+      - key: STEAM_INVENTORY_WORKER_JOB_TTL_SEC
+        sync: false
       - key: SITE_HOST_ALIASES
         sync: false
       - key: ADMIN_STEAM_IDS

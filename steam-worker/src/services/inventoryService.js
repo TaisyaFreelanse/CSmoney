@@ -1,5 +1,6 @@
 import { fetchTradeInventory } from "../puppeteer/fetchTradeInventory.js";
 import { fetchCommunityInventoryPaginated } from "../utils/fetchCommunityInventoryPaginated.js";
+import { buildInventoryMetaV1 } from "../utils/inventoryResponseMeta.js";
 import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson, logInventoryEvent } from "../utils/logger.js";
 import { InventoryCache } from "./inventoryCache.js";
@@ -64,7 +65,10 @@ export function createInventoryHandler(pool, taskQueue, cache) {
     if (r.sessionInvalid) {
       pool.markSessionInvalid(account.id, r.detail || "session");
     }
-    return { ...r, durationMs, accountId: account.id };
+    const apiMetaForResponse = apiPull.ok
+      ? { attempted: true, ok: true, ...apiPull.meta }
+      : { attempted: true, ok: false, error: apiPull.error };
+    return { ...r, durationMs, accountId: account.id, apiMetaForResponse };
   }
 
   return async function handleInventory(query) {
@@ -72,6 +76,10 @@ export function createInventoryHandler(pool, taskQueue, cache) {
     const steamIdCheck = query.steamId?.trim();
 
     if (!tradeUrl) {
+      const meta = buildInventoryMetaV1({
+        apiMeta: { attempted: false, error: "validation" },
+        tradeOutcome: null,
+      });
       return {
         ok: false,
         status: 400,
@@ -81,12 +89,17 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           accountId: null,
           durationMs: 0,
           error: "tradeUrl is required (steamId alone is not enough for trade-offer inventory)",
+          meta,
         },
       };
     }
 
     const parsed = parseTradeUrl(tradeUrl);
     if (!parsed) {
+      const meta = buildInventoryMetaV1({
+        apiMeta: { attempted: false, error: "invalid_trade_url" },
+        tradeOutcome: null,
+      });
       return {
         ok: false,
         status: 400,
@@ -96,12 +109,17 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           accountId: null,
           durationMs: 0,
           error: "invalid tradeUrl",
+          meta,
         },
       };
     }
 
     const partnerSteamId64 = steamId64FromPartner(parsed.partner);
     if (steamIdCheck && normalizeSteamId64(steamIdCheck) !== normalizeSteamId64(partnerSteamId64)) {
+      const meta = buildInventoryMetaV1({
+        apiMeta: { attempted: false, error: "steamId_mismatch" },
+        tradeOutcome: null,
+      });
       return {
         ok: false,
         status: 400,
@@ -111,6 +129,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           accountId: null,
           durationMs: 0,
           error: "steamId does not match tradeUrl partner",
+          meta,
         },
       };
     }
@@ -125,6 +144,14 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         accountId: cached.accountId ?? "cache",
         durationMs: 0,
       });
+      const baseMeta =
+        cached.meta && typeof cached.meta === "object"
+          ? cached.meta
+          : buildInventoryMetaV1({
+              apiMeta: { attempted: false, note: "legacy_cache_entry" },
+              tradeOutcome: { ok: true },
+            });
+      const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
       return {
         ok: true,
         status: 200,
@@ -134,6 +161,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           accountId: cached.accountId ?? "cache",
           durationMs: 0,
           error: null,
+          meta,
         },
       };
     }
@@ -201,7 +229,13 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         return {
           ok: false,
           status: 429,
-          body: { error: "queue_overflow" },
+          body: {
+            error: "queue_overflow",
+            meta: buildInventoryMetaV1({
+              apiMeta: { attempted: false, error: "queue_overflow" },
+              tradeOutcome: null,
+            }),
+          },
         };
       }
       throw e;
@@ -218,19 +252,29 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           accountId: null,
           durationMs: 0,
           error: "no worker account available (busy or all in cooldown)",
+          meta: buildInventoryMetaV1({
+            apiMeta: { attempted: false, error: "no_worker_account_available" },
+            tradeOutcome: null,
+          }),
         },
       };
     }
 
     if (outcome.ok) {
+      const meta = buildInventoryMetaV1({
+        cacheHit: false,
+        apiMeta: outcome.apiMetaForResponse ?? { attempted: false },
+        tradeOutcome: outcome,
+      });
       const body = {
         items: outcome.items,
         source: "trade",
         accountId: outcome.accountId,
         durationMs: outcome.durationMs,
         error: null,
+        meta,
       };
-      cache.set(canonical, { items: outcome.items, accountId: outcome.accountId });
+      cache.set(canonical, { items: outcome.items, accountId: outcome.accountId, meta });
       logInventoryEvent("complete", {
         jobId,
         accountId: outcome.accountId,
@@ -256,6 +300,11 @@ export function createInventoryHandler(pool, taskQueue, cache) {
     });
 
     const status = outcome.sessionInvalid ? 401 : outcome.timedOut ? 504 : 502;
+    const meta = buildInventoryMetaV1({
+      cacheHit: false,
+      apiMeta: outcome.apiMetaForResponse ?? { attempted: false, error: outcome.error },
+      tradeOutcome: outcome,
+    });
     return {
       ok: false,
       status,
@@ -265,6 +314,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         accountId: outcome.accountId ?? null,
         durationMs: outcome.durationMs ?? 0,
         error: outcome.error ?? outcome.detail ?? "unknown",
+        meta,
       },
     };
   };

@@ -260,6 +260,7 @@ export async function fetchTradeInventory(opts) {
 
   if (!fs.existsSync(userDataDir)) {
     return {
+      tradeStats: null,
       ok: false,
       error: "user_data_dir_missing",
       detail: userDataDir,
@@ -282,6 +283,15 @@ export async function fetchTradeInventory(opts) {
     let lastInventoryJsonAt = 0;
     let lastResponseHadMoreItems = false;
     const jsonBodyTasks = [];
+    let scrollRounds = 0;
+    let xhrSkippedDueToCompleteApi = false;
+    const snapTradeStats = () => ({
+      xhrCount: partnerInventoryXhrCount,
+      partnerInventoryJsonChunks: jsonChunks.length,
+      prefetchedInventoryPages: prefetchedInventoryChunks.length,
+      paginationScrollRounds: scrollRounds,
+      xhrSkippedDueToCompleteApi,
+    });
 
     const deadline = Date.now() + maxBrowserMs;
     const timeLeft = () => deadline - Date.now();
@@ -381,6 +391,7 @@ export async function fetchTradeInventory(opts) {
       const msg = e instanceof Error ? e.message : String(e);
       logJson("steam_worker_trade_goto_failed", { accountId, message: msg });
       return {
+        tradeStats: snapTradeStats(),
         ok: false,
         error: "puppeteer_error",
         detail: msg,
@@ -398,6 +409,7 @@ export async function fetchTradeInventory(opts) {
         hint: "proxy_tunnel_tls_or_blocked",
       });
       return {
+        tradeStats: snapTradeStats(),
         ok: false,
         error: "proxy_error",
         detail: "chrome_error_page_after_trade_goto",
@@ -414,6 +426,7 @@ export async function fetchTradeInventory(opts) {
     logJson("steam_worker_session_check", { accountId, phase: "after_goto", ...aliveAfterGoto });
     if (aliveAfterGoto.loginWall) {
       return {
+        tradeStats: snapTradeStats(),
         ok: false,
         error: "session_invalid",
         detail: "login_wall",
@@ -431,6 +444,7 @@ export async function fetchTradeInventory(opts) {
       const alive = await evaluateSteamSessionState(page);
       if (alive.loginWall) {
         return {
+          tradeStats: snapTradeStats(),
           ok: false,
           error: "session_invalid",
           detail: "login_wall_trade_ui",
@@ -481,6 +495,7 @@ export async function fetchTradeInventory(opts) {
         (typeof prefetchAssetCountEarly === "number" && prefetchAssetCountEarly >= steamTotal));
 
     if (!partnerCs2TradeOfferXhrSeen && prefetchAssetCountEarly > 0 && apiLooksCompleteForSkip) {
+      xhrSkippedDueToCompleteApi = true;
       partnerCs2TradeOfferXhrSeen = true;
       lastResponseHadMoreItems = false;
       lastInventoryJsonAt = Date.now();
@@ -499,6 +514,7 @@ export async function fetchTradeInventory(opts) {
       if (sessionDead || (noPartnerXhr && prefetchAssetCountEarly === 0)) {
         logJson("steam_worker_session_invalid", { accountId, sessionDead, noPartnerXhr });
         return {
+          tradeStats: snapTradeStats(),
           ok: false,
           error: "session_invalid",
           detail: sessionDead ? "no_trade_surface" : "no_partnerinventory_xhr",
@@ -518,6 +534,7 @@ export async function fetchTradeInventory(opts) {
           stoppedReason: apiInventoryMeta?.stoppedReason ?? null,
         });
         return {
+          tradeStats: snapTradeStats(),
           ok: false,
           error: "inventory_incomplete_no_trade_xhr",
           detail: "api_incomplete_or_partnerinventory_xhr_missing",
@@ -529,6 +546,7 @@ export async function fetchTradeInventory(opts) {
       }
 
       return {
+        tradeStats: snapTradeStats(),
         ok: false,
         error: "timeout",
         detail: "partnerinventory_cs2_xhr",
@@ -545,7 +563,6 @@ export async function fetchTradeInventory(opts) {
       80,
       Math.max(8, Number(process.env.STEAM_WORKER_INVENTORY_PAGINATION_SCROLL_ROUNDS) || 48),
     );
-    let scrollRounds = 0;
 
     while (timeLeft() > 400) {
       await Promise.allSettled(jsonBodyTasks);
@@ -581,6 +598,7 @@ export async function fetchTradeInventory(opts) {
     });
 
     return {
+      tradeStats: snapTradeStats(),
       ok: true,
       error: null,
       items,
@@ -602,6 +620,7 @@ export async function fetchTradeInventory(opts) {
         /* ignore */
       }
       return {
+        tradeStats: null,
         ok: false,
         error: "task_timeout",
         detail: "wall_clock_task_timeout",
@@ -613,6 +632,7 @@ export async function fetchTradeInventory(opts) {
     const msg = e?.message || String(e);
     logJson("steam_worker_inventory_error", { accountId, message: msg });
     return {
+      tradeStats: null,
       ok: false,
       error: "puppeteer_error",
       detail: msg,

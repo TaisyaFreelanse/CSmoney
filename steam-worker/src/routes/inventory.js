@@ -1,5 +1,6 @@
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
+import { buildInventoryMetaV1 } from "../utils/inventoryResponseMeta.js";
 
 /**
  * @param {ReturnType<import("../services/inventoryService.js").createInventoryHandler>} handleInventory
@@ -33,6 +34,10 @@ export function inventoryRouter(handleInventory) {
         accountId: null,
         durationMs: 0,
         error: e?.message || "internal_error",
+        meta: buildInventoryMetaV1({
+          apiMeta: { attempted: false, error: "internal_error" },
+          tradeOutcome: null,
+        }),
       });
     }
   });
