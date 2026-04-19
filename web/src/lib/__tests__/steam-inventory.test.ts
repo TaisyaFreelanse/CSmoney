@@ -1,11 +1,14 @@
 import { afterEach, describe, it, expect } from "vitest";
 import {
   extractTradeLockDate,
+  hydrateMissingInspectLinksFromRaw,
+  mergeInventoriesPreferApi,
   normalizeInventory,
   ownerInventoryErrorAllowsDefaultContextFallback,
   resolveOwnerInventoryContextId,
   steamClassInstanceKey,
   steamTradeLockMiddleToIso,
+  type NormalizedItem,
   _testing,
 } from "../steam-inventory";
 
@@ -311,6 +314,132 @@ describe("normalizeInventory — inspect link with Item Certificate", () => {
     expect(items).toHaveLength(1);
     expect(items[0].inspectLink).toBe(
       "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S12345A99999DABCDEF",
+    );
+  });
+
+  it("uses owner_actions when actions omit inspect (partner / trade JSON)", () => {
+    const raw = {
+      assets: [{ assetid: "777", classid: "Z1", instanceid: "0", amount: "1" }],
+      descriptions: [
+        {
+          classid: "Z1",
+          instanceid: "0",
+          market_hash_name: "AK-47 | Redline (Field-Tested)",
+          name: "AK-47 | Redline",
+          icon_url: "icon",
+          tradable: 0,
+          marketable: 1,
+          tags: [],
+          actions: [],
+          owner_actions: [
+            {
+              link: "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S%owner_steamid%A%assetid%D999888777",
+              name: "Inspect in Game...",
+            },
+          ],
+        },
+      ],
+    };
+    const items = normalizeInventory(raw, "76561199000000000");
+    expect(items).toHaveLength(1);
+    expect(items[0].inspectLink).toBe(
+      "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S76561199000000000A777D999888777",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeInventoriesPreferApi — keep trade inspect when API row lacks it
+// ---------------------------------------------------------------------------
+describe("mergeInventoriesPreferApi", () => {
+  const baseItem = (over: Partial<NormalizedItem>): NormalizedItem => ({
+    assetId: "1",
+    classId: "c",
+    instanceId: "0",
+    marketHashName: "x",
+    name: "x",
+    iconUrl: "",
+    rarity: null,
+    rarityColor: null,
+    type: null,
+    wear: null,
+    floatValue: null,
+    phaseLabel: null,
+    stickers: [],
+    tradeLockUntil: null,
+    tradable: true,
+    marketable: true,
+    inspectLink: null,
+    ...over,
+  });
+
+  it("preserves browser inspectLink when API duplicate has none", () => {
+    const browser = [
+      baseItem({
+        inspectLink:
+          "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S1A1D1",
+        floatValue: null,
+      }),
+    ];
+    const api = [baseItem({ inspectLink: null, floatValue: 0.37 })];
+    const merged = mergeInventoriesPreferApi(api, browser);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].floatValue).toBe(0.37);
+    expect(merged[0].inspectLink).toContain("csgo_econ_action_preview");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hydrateMissingInspectLinksFromRaw
+// ---------------------------------------------------------------------------
+describe("hydrateMissingInspectLinksFromRaw", () => {
+  it("fills inspectLink from raw owner_actions after partial normalize", () => {
+    const raw = {
+      assets: [{ assetid: "888", classid: "K1", instanceid: "0", amount: "1" }],
+      descriptions: [
+        {
+          classid: "K1",
+          instanceid: "0",
+          market_hash_name: "M4A4 | Howl (Minimal Wear)",
+          name: "M4A4 | Howl",
+          icon_url: "i",
+          tradable: 0,
+          marketable: 0,
+          tags: [],
+          owner_actions: [
+            {
+              link: "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S%owner_steamid%A%assetid%D112233",
+              name: "Inspect in Game...",
+            },
+          ],
+        },
+      ],
+    };
+    const owner = "76561198000000001";
+    const items: NormalizedItem[] = [
+      {
+        assetId: "888",
+        classId: "K1",
+        instanceId: "0",
+        marketHashName: "M4A4 | Howl (Minimal Wear)",
+        name: "M4A4 | Howl",
+        iconUrl: "",
+        rarity: null,
+        rarityColor: null,
+        type: null,
+        wear: null,
+        floatValue: null,
+        phaseLabel: null,
+        stickers: [],
+        tradeLockUntil: null,
+        tradable: false,
+        marketable: false,
+        inspectLink: null,
+      },
+    ];
+    expect(hydrateMissingInspectLinksFromRaw(items, raw, owner)).toBe(1);
+    expect(items[0].inspectLink).toBe(
+      "steam://rungame/730/76561202255233023/+csgo_econ_action_preview S76561198000000001A888D112233",
     );
   });
 });

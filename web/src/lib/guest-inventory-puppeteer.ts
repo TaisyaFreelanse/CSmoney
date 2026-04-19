@@ -14,6 +14,7 @@ import {
 } from "@/lib/steam-puppeteer-accounts";
 import { scrollPartnerInventoryPane } from "../../../shared/partner-inventory-scroll.js";
 import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from "@/lib/steam-community-url";
+import { normalizeInventory } from "@/lib/steam-inventory";
 
 const LOG = "[guest-inv-puppeteer]";
 
@@ -855,6 +856,9 @@ async function runTradeOfferPuppeteerInventory(
   /** When Steam keeps `more_items`, scroll the partner pane to trigger further XHR pages. */
   let guestPartnerInvScrollRounds = 0;
   const GUEST_PARTNER_INV_MAX_SCROLL = 48;
+  /** Extra scroll passes when merged JSON still lacks inspect links (owner_actions often arrive late). */
+  let inspectLinkRecoveryPasses = 0;
+  const INSPECT_LINK_RECOVERY_MAX = 6;
 
   const deadline = Date.now() + MAX_BROWSER_MS;
   const timeLeft = () => deadline - Date.now();
@@ -1222,6 +1226,24 @@ async function runTradeOfferPuppeteerInventory(
 
       if (receivedInventoryJsonPayload) {
         if (!lastResponseHadMoreItems && idle >= idleThreshold) {
+          const mergedAtIdle = mergeCommunityInventoryJson(jsonChunks) as Record<string, unknown>;
+          const missingInspect = normalizeInventory(mergedAtIdle, steamId64).filter(
+            (it) => !it.inspectLink && it.assetId,
+          ).length;
+          if (
+            missingInspect > 0 &&
+            inspectLinkRecoveryPasses < INSPECT_LINK_RECOVERY_MAX &&
+            guestPartnerInvScrollRounds < GUEST_PARTNER_INV_MAX_SCROLL &&
+            timeLeft() > 3500
+          ) {
+            inspectLinkRecoveryPasses += 1;
+            guestPartnerInvScrollRounds += 1;
+            await scrollPartnerInventoryPane(page);
+            await selectPartnerCs2Inventory(page);
+            lastInventoryJsonAt = Date.now();
+            await sleepMs(360);
+            continue;
+          }
           console.log(LOG, "ok assets=", n, "steamId64=", steamId64, "more_items=false idle=", idle);
           logPartnerInventorySummary(lp, {
             totalItems: n,

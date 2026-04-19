@@ -24,6 +24,13 @@ const PAINT_INDEX_PHASE: Record<number, string> = {
   570: "Phase 2",
   571: "Phase 3",
   572: "Phase 4",
+  617: "Black Pearl",
+  618: "Phase 2",
+  619: "Sapphire",
+  852: "Phase 1",
+  853: "Phase 2",
+  854: "Phase 3",
+  855: "Phase 4",
 };
 
 const CACHE_PREFIX = "csmoney:csfloat:inspect:";
@@ -115,16 +122,58 @@ function httpsGet(
   });
 }
 
-function parseInspectParams(link: string): { s: string; a: string; d: string } | null {
+/**
+ * CSFloat supports classic `?s=&a=&d=` (and market `?m=&a=&d=`) plus full links via `?url=`
+ * (required for CS2 hex / Item Certificate inspect strings).
+ */
+async function fetchFromCsFloatOnceForInspectLink(
+  link: string,
+  apiKey: string,
+): Promise<{ status: number; body: string } | null> {
   let decoded: string;
   try {
     decoded = decodeURIComponent(link);
   } catch {
     decoded = link;
   }
-  const m = /S(\d+)A(\d+)D(\d+)/.exec(decoded);
-  if (!m) return null;
-  return { s: m[1], a: m[2], d: m[3] };
+
+  const sad = /S(\d+)A(\d+)D(\d+)/.exec(decoded);
+  if (sad) {
+    const s = sad[1]!;
+    const a = sad[2]!;
+    const d = sad[3]!;
+    if (s !== "0") {
+      const url = `https://api.csfloat.com/?s=${encodeURIComponent(s)}&a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
+      return httpsGet(url, {
+        Accept: "application/json",
+        Authorization: apiKey,
+      });
+    }
+    const url = `https://api.csfloat.com/?a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
+    return httpsGet(url, {
+      Accept: "application/json",
+      Authorization: apiKey,
+    });
+  }
+
+  const mam = /M(\d+)A(\d+)D(\d+)/.exec(decoded);
+  if (mam) {
+    const url = `https://api.csfloat.com/?m=${encodeURIComponent(mam[1]!)}&a=${encodeURIComponent(mam[2]!)}&d=${encodeURIComponent(mam[3]!)}`;
+    return httpsGet(url, {
+      Accept: "application/json",
+      Authorization: apiKey,
+    });
+  }
+
+  if (decoded.includes("csgo_econ_action_preview") || link.includes("csgo_econ_action_preview")) {
+    const url = `https://api.csfloat.com/?url=${encodeURIComponent(link)}`;
+    return httpsGet(url, {
+      Accept: "application/json",
+      Authorization: apiKey,
+    });
+  }
+
+  return null;
 }
 
 function cacheKeyForInspectLink(link: string): string {
@@ -179,24 +228,7 @@ async function writeInspectTombstone(link: string): Promise<void> {
   await writeInspectCache(link, row);
 }
 
-async function fetchFromCsFloatOnce(
-  s: string,
-  a: string,
-  d: string,
-  apiKey: string,
-): Promise<{ status: number; body: string }> {
-  const url = `https://api.csfloat.com/?s=${s}&a=${a}&d=${d}`;
-  return httpsGet(url, {
-    Accept: "application/json",
-    Authorization: apiKey,
-  });
-}
-
-async function fetchInspectDataFromApi(
-  s: string,
-  a: string,
-  d: string,
-): Promise<InspectData | null> {
+async function fetchInspectDataFromApi(link: string): Promise<InspectData | null> {
   const keys = parseApiKeys();
   if (keys.length === 0) return null;
 
@@ -208,7 +240,11 @@ async function fetchInspectDataFromApi(
     if (!key) break;
     await acquireCsFloatSlot();
     try {
-      const { status, body } = await fetchFromCsFloatOnce(s, a, d, key);
+      const req = await fetchFromCsFloatOnceForInspectLink(link, key);
+      if (req == null) {
+        return null;
+      }
+      const { status, body } = req;
       if (status === 429) {
         console.log(
           JSON.stringify({
@@ -358,17 +394,11 @@ export async function enrichNewItemsWithCsFloat(
       continue;
     }
 
-    const params = parseInspectParams(link);
-    if (!params || params.s === "0") {
-      failed++;
-      continue;
-    }
-
     let inflight = inspectInflight.get(link);
     if (!inflight) {
       inflight = (async (): Promise<InspectData | null> => {
         sentToCsfloat++;
-        const data = await fetchInspectDataFromApi(params.s, params.a, params.d);
+        const data = await fetchInspectDataFromApi(link);
         if (data === null) {
           await writeInspectTombstone(link);
           return null;

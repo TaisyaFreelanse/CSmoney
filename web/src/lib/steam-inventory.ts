@@ -83,11 +83,25 @@ export interface NormalizedItem {
 
 /**
  * Merge browser + API inventory: on duplicate `assetId`, the API item wins (float/phase from asset_properties).
+ * If the API row has no inspect link but the trade scrape does, keep the browser link so CSFloat can run.
  */
 export function mergeInventoriesPreferApi(apiItems: NormalizedItem[], browserItems: NormalizedItem[]): NormalizedItem[] {
   const m = new Map<string, NormalizedItem>();
   for (const i of browserItems) m.set(i.assetId, i);
-  for (const i of apiItems) m.set(i.assetId, i);
+  for (const i of apiItems) {
+    const prev = m.get(i.assetId);
+    if (!prev) {
+      m.set(i.assetId, i);
+      continue;
+    }
+    const merged = { ...i };
+    const apiLink = merged.inspectLink?.trim();
+    const brLink = prev.inspectLink?.trim();
+    if ((!apiLink || apiLink.length === 0) && brLink) {
+      merged.inspectLink = prev.inspectLink;
+    }
+    m.set(i.assetId, merged);
+  }
   return [...m.values()];
 }
 
@@ -406,6 +420,98 @@ function extractInspectLink(actions: Array<{ link?: string; name?: string }> | u
   return null;
 }
 
+/** Steam puts inspect on `actions`, `owner_actions` (partner inv), or `market_actions`. */
+function collectInspectActionArrays(desc: Record<string, unknown> | null | undefined): Array<{ link?: string; name?: string }> {
+  if (!desc || typeof desc !== "object") return [];
+  const out: Array<{ link?: string; name?: string }> = [];
+  for (const key of ["actions", "owner_actions", "market_actions"] as const) {
+    const arr = desc[key];
+    if (!Array.isArray(arr)) continue;
+    for (const a of arr) {
+      if (a && typeof a === "object") out.push(a as { link?: string; name?: string });
+    }
+  }
+  return out;
+}
+
+type ParsedRawInventoryForInspect = {
+  descriptions: any[];
+  assetPropsMap: Map<string, any[]>;
+};
+
+function parseRawInventoryForInspect(raw: any): ParsedRawInventoryForInspect | null {
+  if (!raw || typeof raw !== "object") return null;
+  let descriptions: any[] = [];
+  if (Array.isArray(raw.assets)) {
+    descriptions = raw.descriptions ?? [];
+  } else if (raw.rgInventory && raw.rgDescriptions) {
+    descriptions = Object.values(raw.rgDescriptions);
+  } else {
+    return null;
+  }
+  const assetPropsMap = new Map<string, any[]>();
+  if (Array.isArray(raw.asset_properties)) {
+    for (const ap of raw.asset_properties) {
+      if (ap.assetid && Array.isArray(ap.asset_properties)) {
+        assetPropsMap.set(String(ap.assetid), ap.asset_properties);
+      }
+    }
+  }
+  return { descriptions, assetPropsMap };
+}
+
+/**
+ * Second pass: rebuild `inspectLink` from merged Steam JSON when normalize missed it
+ * (e.g. first XHR page without `owner_actions`, hidden rows, or API-only merge).
+ */
+export function hydrateMissingInspectLinksFromRaw(
+  items: NormalizedItem[],
+  raw: unknown,
+  ownerSteamId64: string,
+): number {
+  const parsed = parseRawInventoryForInspect(raw as any);
+  if (!parsed) return 0;
+  const { descriptions, assetPropsMap } = parsed;
+  const descMap = new Map<string, any>();
+  for (const d of descriptions) {
+    if (!d || typeof d !== "object") continue;
+    const dr = d as Record<string, unknown>;
+    const cid = rawClassId(dr);
+    const iid = rawInstanceId(dr);
+    if (cid === undefined || cid === null || String(cid).trim() === "") continue;
+    const key = steamClassInstanceKey(cid, iid);
+    if (!descMap.has(key)) descMap.set(key, d);
+  }
+
+  const owner = ownerSteamId64?.trim() || "0";
+  let fixed = 0;
+  for (const item of items) {
+    if (item.inspectLink) continue;
+    const aid = item.assetId?.trim();
+    if (!aid) continue;
+
+    let desc = descMap.get(steamClassInstanceKey(item.classId, item.instanceId));
+    if (!desc) desc = descMap.get(steamClassInstanceKey(item.classId, "0"));
+    if (!desc) continue;
+
+    const descRec = desc as Record<string, unknown>;
+    const propsForAsset = assetPropsMap.get(aid);
+    const { stringProps } = extractFromAssetProperties(propsForAsset);
+    const inspectRaw = extractInspectLink(collectInspectActionArrays(descRec));
+    const inspectLink =
+      inspectRaw != null
+        ? resolveInspectLink(inspectRaw, owner, aid, stringProps)
+        : stringProps.get(6)
+          ? resolveInspectLink(INSPECT_PREFIX, owner, aid, stringProps)
+          : null;
+    if (inspectLink) {
+      item.inspectLink = inspectLink;
+      fixed++;
+    }
+  }
+  return fixed;
+}
+
 /**
  * Parse a Steam trade-lock date fragment into UTC ISO.
  * Steam uses GMT for these strings; `new Date(string)` without a zone uses the host's local TZ,
@@ -605,10 +711,13 @@ export function normalizeInventory(
       (isDopplerFamilySkin(itemName) ? detectPhaseFromTagsDescs(desc.descriptions, desc.tags) : null);
     const floatVal = apFloat ?? extractFloat(desc.descriptions);
 
-    const inspectRaw = extractInspectLink(desc.actions);
-    const inspectLink = inspectRaw
-      ? resolveInspectLink(inspectRaw, ownerSteamId ?? "0", assetId, stringProps)
-      : null;
+    const inspectRaw = extractInspectLink(collectInspectActionArrays(descRec));
+    const inspectLink =
+      inspectRaw != null
+        ? resolveInspectLink(inspectRaw, ownerSteamId ?? "0", assetId, stringProps)
+        : stringProps.get(6)
+          ? resolveInspectLink(INSPECT_PREFIX, ownerSteamId ?? "0", assetId, stringProps)
+          : null;
 
     const stickers = extractStickers(desc.descriptions);
 

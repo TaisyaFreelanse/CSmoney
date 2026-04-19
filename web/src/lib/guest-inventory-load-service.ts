@@ -28,6 +28,7 @@ import {
 } from "@/lib/inventory-cache";
 import {
   fetchGuestInventoryBySteamId64,
+  hydrateMissingInspectLinksFromRaw,
   mergeInventoriesPreferApi,
   normalizeInventory,
   normalizeSteamId64ForCache,
@@ -278,7 +279,7 @@ function queueFullResponse(
 /**
  * Guest CS2 inventory:
  * - Локально (по умолчанию): Steam Community API, затем trade URL (Puppeteer) для добора, merge; CSFloat при необходимости.
- * - На Render (`RENDER=true`) или при `STEAM_INVENTORY_REMOTE_WORKER_ONLY=1`: только HTTP к steam-worker (без Steam HTTPS / Puppeteer на Next); CSFloat на этом хосте не вызывается.
+ * - На Render (`RENDER=true`) или при `STEAM_INVENTORY_REMOTE_WORKER_ONLY=1`: только HTTP к steam-worker (без Steam / Puppeteer на Next); CSFloat вызывается здесь же после гидратации inspect из `raw`.
  */
 export async function loadGuestInventoryForUser(args: {
   userSteamId: string;
@@ -421,26 +422,18 @@ async function runGuestInventoryRemoteWorkerLoad(
     itemCount: merged.length,
   });
 
-  const csSkip = {
-    totalItems: merged.length,
-    newWithoutApi: 0,
-    sentToCsfloat: 0,
-    cacheHits: 0,
-    enriched: 0,
-    failed: 0,
-    durationMs: 0,
-    keyRotations: 0,
-  };
+  hydrateMissingInspectLinksFromRaw(merged, raw, steamId64);
+  const cs = await enrichNewItemsWithCsFloat(merged, new Set<string>());
   logGuestInvPipeline("guest_inv_load_complete", {
     mode,
     snapshotSteamId,
     primarySource: "remote_worker",
     totalItems: merged.length,
     apiItemCount: 0,
-    newWithoutApi: csSkip.newWithoutApi,
-    csfloatSent: csSkip.sentToCsfloat,
-    csfloatCacheHits: csSkip.cacheHits,
-    csfloatEnriched: csSkip.enriched,
+    newWithoutApi: cs.newWithoutApi,
+    csfloatSent: cs.sentToCsfloat,
+    csfloatCacheHits: cs.cacheHits,
+    csfloatEnriched: cs.enriched,
     durationMs: Date.now() - pipelineT0,
   });
   console.log(
@@ -450,8 +443,8 @@ async function runGuestInventoryRemoteWorkerLoad(
       snapshotSteamId,
       primarySource: "remote_worker",
       totalItems: merged.length,
-      newWithoutApi: csSkip.newWithoutApi,
-      csfloatSent: csSkip.sentToCsfloat,
+      newWithoutApi: cs.newWithoutApi,
+      csfloatSent: cs.sentToCsfloat,
       durationMs: Date.now() - pipelineT0,
     }),
   );
@@ -587,12 +580,24 @@ async function runGuestInventoryLoad(
     merged: NormalizedItem[],
     primary: NonNullable<GuestInventoryLoadFlags["guestInventoryPrimarySource"]>,
     puppeteerWorker?: SteamPuppeteerAccount | null,
+    rawForInspectHydrate?: unknown,
   ): Promise<GuestInventoryLoadResult> => {
     if (
       puppeteerWorker &&
       (primary === "mixed" || primary === "trade_url")
     ) {
       recordSteamProfileSuccess(puppeteerWorker.laneId, puppeteerWorker.accountId);
+    }
+    if (rawForInspectHydrate != null && typeof rawForInspectHydrate === "object") {
+      const fixed = hydrateMissingInspectLinksFromRaw(merged, rawForInspectHydrate, steamId64);
+      if (fixed > 0) {
+        logGuestInvPipeline("inspect_hydrate_from_raw", {
+          mode,
+          snapshotSteamId: steamId64,
+          fixedCount: fixed,
+          primarySource: primary,
+        });
+      }
     }
     const cs = await enrichNewItemsWithCsFloat(merged, apiRes.ok ? apiAssetIds : new Set<string>());
     logGuestInvPipeline("guest_inv_load_complete", {
@@ -655,7 +660,7 @@ async function runGuestInventoryLoad(
     const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
       apiItems.length > 0 ? "mixed" : "trade_url";
     mark2hAfterSuccess = true;
-    return finalizeSuccess(merged, primary, g1.account ?? null);
+    return finalizeSuccess(merged, primary, g1.account ?? null, p1.raw);
   }
 
   if (p1.reason === "disabled" || p1.reason === "launch_failed") {
@@ -710,7 +715,7 @@ async function runGuestInventoryLoad(
       const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
         apiItems.length > 0 ? "mixed" : "trade_url";
       mark2hAfterSuccess = true;
-      return finalizeSuccess(merged, primary, g2.account ?? null);
+      return finalizeSuccess(merged, primary, g2.account ?? null, p2.raw);
     }
     if (p2.reason === "rate_limited") {
       await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
@@ -740,7 +745,7 @@ async function runGuestInventoryLoad(
       const primary: GuestInventoryLoadFlags["guestInventoryPrimarySource"] =
         apiItems.length > 0 ? "mixed" : "trade_url";
       mark2hAfterSuccess = true;
-      return finalizeSuccess(merged, primary, g2.account ?? null);
+      return finalizeSuccess(merged, primary, g2.account ?? null, p2.raw);
     }
     if (p2.reason === "rate_limited") {
       await markUserShortGuestCooldown(userSteamId, SHORT_UNSTABLE_COOLDOWN_MS);
