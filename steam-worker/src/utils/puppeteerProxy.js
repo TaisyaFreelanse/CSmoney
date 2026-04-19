@@ -10,6 +10,8 @@ export function puppeteerChromeArgs(extra = []) {
   const port = process.env.PROXY_PORT?.trim();
   if (host && port) {
     args.push(`--proxy-server=http://${host}:${port}`);
+    // Bright Data / TLS-inspecting proxies: Chromium otherwise fails with ERR_CERT_AUTHORITY_INVALID
+    args.push("--ignore-certificate-errors");
   }
   return args;
 }
