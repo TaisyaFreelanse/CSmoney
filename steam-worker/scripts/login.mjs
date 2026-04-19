@@ -10,6 +10,7 @@ import {
   authenticatePuppeteerProxy,
   puppeteerChromeArgs,
   puppeteerHeadless,
+  verifyBrightDataProxyIp,
 } from "../src/utils/puppeteerProxy.js";
 
 const arg = process.argv[2]?.trim();
@@ -45,6 +46,7 @@ function resolveProfileDir(idOrPath) {
 }
 
 const userDataDir = resolveProfileDir(arg);
+const proxySessionKey = /[/\\]/.test(arg) ? path.basename(userDataDir) : arg;
 
 try {
   mkdirSync(userDataDir, { recursive: true });
@@ -86,7 +88,8 @@ async function main() {
   });
 
   const page = await browser.newPage();
-  await authenticatePuppeteerProxy(page);
+  await authenticatePuppeteerProxy(page, proxySessionKey);
+  await verifyBrightDataProxyIp(page, proxySessionKey);
   await page.goto("https://steamcommunity.com/login/home/?goto=", {
     waitUntil: "domcontentloaded",
     timeout: 120_000,

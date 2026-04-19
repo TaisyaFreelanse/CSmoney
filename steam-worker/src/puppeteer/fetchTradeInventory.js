@@ -11,6 +11,7 @@ import {
   authenticatePuppeteerProxy,
   puppeteerChromeArgs,
   puppeteerHeadless,
+  verifyBrightDataProxyIp,
 } from "../utils/puppeteerProxy.js";
 
 const TARGET_APPID = 730;
@@ -290,13 +291,14 @@ export async function fetchTradeInventory(opts) {
     });
 
     const page = await browser.newPage();
-    await authenticatePuppeteerProxy(page);
+    await authenticatePuppeteerProxy(page, accountId);
+    await verifyBrightDataProxyIp(page, accountId);
     await page.setViewport({ width: 1280, height: 800 });
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
     );
 
-    if (process.env.STEAM_WORKER_DEBUG_GEO === "1") {
+    if (process.env.STEAM_WORKER_DEBUG_GEO === "1" && process.env.STEAM_WORKER_VERIFY_PROXY_IP !== "1") {
       try {
         await page.goto("https://geo.brdtest.com/mygeo.json", {
           waitUntil: "domcontentloaded",
