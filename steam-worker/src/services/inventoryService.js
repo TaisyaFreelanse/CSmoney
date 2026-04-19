@@ -85,6 +85,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         status: 400,
         body: {
           items: [],
+          raw: null,
           source: null,
           accountId: null,
           durationMs: 0,
@@ -105,6 +106,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         status: 400,
         body: {
           items: [],
+          raw: null,
           source: null,
           accountId: null,
           durationMs: 0,
@@ -125,6 +127,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         status: 400,
         body: {
           items: [],
+          raw: null,
           source: null,
           accountId: null,
           durationMs: 0,
@@ -138,33 +141,42 @@ export function createInventoryHandler(pool, taskQueue, cache) {
 
     const cached = cache.get(canonical);
     if (cached) {
-      logInventoryEvent("cache_hit", {
-        itemsCount: cached.items?.length ?? 0,
-        error: null,
-        accountId: cached.accountId ?? "cache",
-        durationMs: 0,
-      });
-      const baseMeta =
-        cached.meta && typeof cached.meta === "object"
-          ? cached.meta
-          : buildInventoryMetaV1({
-              apiMeta: { attempted: false, note: "legacy_cache_entry" },
-              tradeOutcome: { ok: true },
-            });
-      const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
-      return {
-        ok: true,
-        status: 200,
-        body: {
-          items: cached.items,
-          raw: cached.raw ?? null,
-          source: "trade",
+      /** Legacy in-memory entries (pre-`raw`) must not return 200 without `raw` — orchestrators need merged JSON. */
+      if (cached.raw == null || typeof cached.raw !== "object") {
+        logInventoryEvent("cache_bust_missing_raw", {
+          itemsCount: cached.items?.length ?? 0,
+          accountId: cached.accountId ?? "cache",
+        });
+        cache.delete(canonical);
+      } else {
+        logInventoryEvent("cache_hit", {
+          itemsCount: cached.items?.length ?? 0,
+          error: null,
           accountId: cached.accountId ?? "cache",
           durationMs: 0,
-          error: null,
-          meta,
-        },
-      };
+        });
+        const baseMeta =
+          cached.meta && typeof cached.meta === "object"
+            ? cached.meta
+            : buildInventoryMetaV1({
+                apiMeta: { attempted: false, note: "legacy_cache_entry" },
+                tradeOutcome: { ok: true },
+              });
+        const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
+        return {
+          ok: true,
+          status: 200,
+          body: {
+            items: cached.items,
+            raw: cached.raw,
+            source: "trade",
+            accountId: cached.accountId ?? "cache",
+            durationMs: 0,
+            error: null,
+            meta,
+          },
+        };
+      }
     }
 
     const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -175,6 +187,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       if (!slot) {
         return {
           items: [],
+          raw: null,
           source: "trade",
           accountId: null,
           durationMs: 0,
@@ -231,6 +244,11 @@ export function createInventoryHandler(pool, taskQueue, cache) {
           ok: false,
           status: 429,
           body: {
+            items: [],
+            raw: null,
+            source: "trade",
+            accountId: null,
+            durationMs: 0,
             error: "queue_overflow",
             meta: buildInventoryMetaV1({
               apiMeta: { attempted: false, error: "queue_overflow" },
@@ -249,6 +267,7 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         status: 503,
         body: {
           items: [],
+          raw: null,
           source: "trade",
           accountId: null,
           durationMs: 0,

@@ -984,6 +984,15 @@ export async function fetchOwnerInventory(
     }
     const raw = body.raw;
     if (!raw || typeof raw !== "object") {
+      console.warn(
+        JSON.stringify({
+          type: "owner_inv_remote_worker",
+          event: "missing_raw",
+          httpStatus,
+          hint: "steam-worker must return body.raw (merged inventory). Deploy latest worker; restart clears stale in-memory cache without raw.",
+          ts: Date.now(),
+        }),
+      );
       return { ok: false, error: "worker_missing_raw_inventory" };
     }
     const items = normalizeInventory(raw, ownerSteamId);
