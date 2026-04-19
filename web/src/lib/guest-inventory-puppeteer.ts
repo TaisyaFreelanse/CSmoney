@@ -851,6 +851,9 @@ async function runTradeOfferPuppeteerInventory(
   let maxSingleXhrItems = 0;
   let hadPositivePartnerXhr = false;
   let usedWindowFallback = false;
+  /** When Steam keeps `more_items`, scroll the partner pane to trigger further XHR pages. */
+  let guestPartnerInvScrollRounds = 0;
+  const GUEST_PARTNER_INV_MAX_SCROLL = 48;
 
   const deadline = Date.now() + MAX_BROWSER_MS;
   const timeLeft = () => deadline - Date.now();
@@ -1232,6 +1235,34 @@ async function runTradeOfferPuppeteerInventory(
           return { ok: true, raw: mergedTry, steamId64, source: "trade_url" };
         }
         if (lastResponseHadMoreItems && idle >= INVENTORY_JSON_STALL_WHILE_MORE_MS && n > 0) {
+          if (guestPartnerInvScrollRounds < GUEST_PARTNER_INV_MAX_SCROLL && timeLeft() > 2500) {
+            guestPartnerInvScrollRounds += 1;
+            await page
+              .evaluate(() => {
+                const tryScroll = (el: Element | null) => {
+                  if (!el || typeof (el as HTMLElement).scrollTop !== "number") return false;
+                  const h = el as HTMLElement;
+                  const prev = h.scrollTop;
+                  h.scrollTop = Math.min(h.scrollHeight, h.scrollTop + 900);
+                  return h.scrollTop > prev;
+                };
+                for (const sel of [
+                  "#trade_theirs .inventory_ctn",
+                  "#trade_theirs .inventory_page",
+                  "#inventories .inventory_ctn",
+                  "#inventories",
+                  "#trade_theirs",
+                ]) {
+                  if (tryScroll(document.querySelector(sel))) return;
+                }
+                window.scrollBy(0, 500);
+              })
+              .catch(() => {});
+            await selectPartnerCs2Inventory(page);
+            lastInventoryJsonAt = Date.now();
+            await sleepMs(320);
+            continue;
+          }
           console.log(
             LOG,
             "ok partial pagination stall assets=",

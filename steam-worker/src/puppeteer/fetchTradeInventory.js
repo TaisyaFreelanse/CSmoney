@@ -21,6 +21,32 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Nudge Steam trade UI to request the next inventory page when `more_items` is true. */
+async function scrollPartnerInventoryForPagination(page) {
+  await page
+    .evaluate(() => {
+      const tryScroll = (el) => {
+        if (!el || typeof el.scrollTop !== "number") return false;
+        const prev = el.scrollTop;
+        el.scrollTop = Math.min(el.scrollHeight, el.scrollTop + 900);
+        return el.scrollTop > prev;
+      };
+      const candidates = [
+        document.querySelector("#trade_theirs .inventory_ctn"),
+        document.querySelector("#trade_theirs .inventory_page"),
+        document.querySelector("#inventories .inventory_ctn"),
+        document.querySelector("#inventories"),
+        document.querySelector("#trade_theirs"),
+      ].filter(Boolean);
+      for (const el of candidates) {
+        if (tryScroll(el)) return true;
+      }
+      window.scrollBy(0, 500);
+      return true;
+    })
+    .catch(() => {});
+}
+
 function isStrictPartnerCs2(url, expectedSteam64) {
   try {
     const u = new URL(url);
@@ -236,6 +262,7 @@ export async function fetchTradeInventory(opts) {
     userDataDir,
     accountId,
     partnerXhrWaitMs: partnerXhrWaitMsOpt,
+    prefetchedInventoryChunks = [],
   } = opts;
 
   const taskTimeoutMs = Math.min(
@@ -467,6 +494,19 @@ export async function fetchTradeInventory(opts) {
 
     await Promise.allSettled(jsonBodyTasks);
 
+    const prefetchMergedEarly = mergeCommunityInventoryJson([...prefetchedInventoryChunks]);
+    const prefetchAssetCountEarly = prefetchMergedEarly.assets?.length ?? 0;
+
+    if (!partnerCs2TradeOfferXhrSeen && prefetchAssetCountEarly > 0) {
+      partnerCs2TradeOfferXhrSeen = true;
+      lastResponseHadMoreItems = false;
+      lastInventoryJsonAt = Date.now();
+      logJson("steam_worker_inventory_trade_xhr_skipped_prefetch_ok", {
+        accountId,
+        prefetchAssets: prefetchAssetCountEarly,
+      });
+    }
+
     if (!partnerCs2TradeOfferXhrSeen) {
       const alive = await evaluateSteamSessionState(page);
       const sessionDead = alive.loginWall || !alive.tradeSurfacePresent;
@@ -492,23 +532,46 @@ export async function fetchTradeInventory(opts) {
       };
     }
 
-    const idleMs = 1200;
-    const idleDeadline = Date.now() + idleMs;
-    while (Date.now() < idleDeadline && timeLeft() > 300) {
+    const idleMsQuiet = 1100;
+    const idleMsAfterMore = 850;
+    const stallWhileMoreMs = 3200;
+    const maxScrollRounds = Math.min(
+      80,
+      Math.max(8, Number(process.env.STEAM_WORKER_INVENTORY_PAGINATION_SCROLL_ROUNDS) || 48),
+    );
+    let scrollRounds = 0;
+
+    while (timeLeft() > 400) {
       await Promise.allSettled(jsonBodyTasks);
       const idle = lastInventoryJsonAt > 0 ? Date.now() - lastInventoryJsonAt : 0;
-      if (!lastResponseHadMoreItems && idle >= idleMs) break;
+      const idleThreshold = lastResponseHadMoreItems ? idleMsAfterMore : idleMsQuiet;
+
+      if (!lastResponseHadMoreItems && idle >= idleThreshold) break;
+
+      if (lastResponseHadMoreItems && idle >= stallWhileMoreMs && scrollRounds < maxScrollRounds) {
+        scrollRounds += 1;
+        await scrollPartnerInventoryForPagination(page);
+        await selectPartnerCs2Inventory(page).catch(() => {});
+        lastInventoryJsonAt = Date.now();
+        await sleep(350);
+        continue;
+      }
+
+      if (lastResponseHadMoreItems && idle >= stallWhileMoreMs * 2 && scrollRounds >= maxScrollRounds) break;
+
       await sleep(200);
     }
     await Promise.allSettled(jsonBodyTasks);
 
-    const merged = mergeCommunityInventoryJson(jsonChunks);
+    const merged = mergeCommunityInventoryJson([...prefetchedInventoryChunks, ...jsonChunks]);
     const items = mergedToItems(merged);
 
     logJson("steam_worker_inventory_ok", {
       accountId,
       itemCount: items.length,
       xhrCount: partnerInventoryXhrCount,
+      prefetchedChunks: prefetchedInventoryChunks.length,
+      paginationScrollRounds: scrollRounds,
     });
 
     return {

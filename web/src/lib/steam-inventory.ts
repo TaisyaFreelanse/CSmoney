@@ -686,7 +686,11 @@ async function fetchViaCommunityNew(
   const allAssetProps: unknown[] = [];
   const descMap = new Map<string, unknown>();
   let startAssetId: string | undefined;
-  const MAX_PAGES = 10;
+  /** Steam caps pages (~500–2000 assets); large backpacks need many requests. */
+  const MAX_PAGES = Math.min(
+    200,
+    Math.max(1, parseInt(process.env.STEAM_INVENTORY_COMMUNITY_MAX_PAGES ?? "80", 10) || 80),
+  );
 
   for (let page = 0; page < MAX_PAGES; page++) {
     let url = `https://steamcommunity.com/inventory/${steamId64}/${CS2_APP_ID}/${contextId}?l=english&count=2000`;

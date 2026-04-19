@@ -1,4 +1,5 @@
 import { fetchTradeInventory } from "../puppeteer/fetchTradeInventory.js";
+import { fetchCommunityInventoryPaginated } from "../utils/fetchCommunityInventoryPaginated.js";
 import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson, logInventoryEvent } from "../utils/logger.js";
 import { InventoryCache } from "./inventoryCache.js";
@@ -17,12 +18,27 @@ export function createInventoryHandler(pool, taskQueue, cache) {
   async function executeWithAccount(account, canonical, partnerSteamId64) {
     pool.ensureProfileDir(account);
     const t0 = Date.now();
+    const apiPull = await fetchCommunityInventoryPaginated(partnerSteamId64, account.id);
+    if (apiPull.ok) {
+      logJson("steam_worker_inventory_api_prefetch_ok", {
+        accountId: account.id,
+        pages: apiPull.chunks.length,
+      });
+    } else {
+      logJson("steam_worker_inventory_api_prefetch_skip", {
+        accountId: account.id,
+        error: apiPull.error,
+      });
+    }
+    const prefetchedInventoryChunks = apiPull.ok ? apiPull.chunks : [];
+
     const r = await fetchTradeInventory({
       tradeUrlCanonical: canonical,
       partnerSteamId64,
       userDataDir: account.userDataDir,
       accountId: account.id,
       taskTimeoutMs: TASK_TIMEOUT_MS,
+      prefetchedInventoryChunks,
       partnerXhrWaitMs: Math.min(
         90_000,
         Math.max(30_000, Number(process.env.STEAM_WORKER_PARTNER_XHR_WAIT_MS) || 60_000),

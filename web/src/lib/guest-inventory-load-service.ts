@@ -274,8 +274,8 @@ function queueFullResponse(
 }
 
 /**
- * Guest CS2 inventory: сначала Steam Community API (float/phase), затем полный список через trade URL (Puppeteer),
- * merge по assetId с приоритетом API; CSFloat — только для предметов, отсутствующих в ответе API.
+ * Guest CS2 inventory: сначала Steam Community API (пагинация, float/phase), затем trade URL (Puppeteer) для добора,
+ * merge по assetId с приоритетом API; CSFloat — только если у предмета ещё нет float (кэш по inspect link).
  */
 export async function loadGuestInventoryForUser(args: {
   userSteamId: string;

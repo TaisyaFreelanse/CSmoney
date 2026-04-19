@@ -274,8 +274,9 @@ export type CsFloatEnrichLog = {
 };
 
 /**
- * CSFloat only for items whose assetId is in the target set (typically: present in merge but absent from API-only fetch).
- * Mutates items in place. Skips when float already present.
+ * CSFloat for any merged item that still lacks float (after Steam API + trade merge), with inspect-link cache.
+ * `apiAssetIds` is kept for metrics (`newWithoutApi`); API-sourced rows without `asset_properties` float still qualify.
+ * Mutates items in place.
  */
 export async function enrichNewItemsWithCsFloat(
   items: NormalizedItem[],
@@ -298,7 +299,7 @@ export async function enrichNewItemsWithCsFloat(
   }
 
   const targets = items.filter(
-    (i) => !apiAssetIds.has(i.assetId) && i.inspectLink && (i.floatValue == null || i.floatValue <= 0),
+    (i) => i.inspectLink && (i.floatValue == null || i.floatValue <= 0),
   );
   const newWithoutApi = items.filter((i) => !apiAssetIds.has(i.assetId)).length;
 
