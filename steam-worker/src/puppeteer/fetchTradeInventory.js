@@ -372,8 +372,37 @@ export async function fetchTradeInventory(opts) {
     });
 
     const gotoMs = Math.min(35_000, Math.max(5000, timeLeft() - 500));
-    await page.goto(tradeUrlCanonical, { waitUntil: "domcontentloaded", timeout: gotoMs });
+    try {
+      await page.goto(tradeUrlCanonical, { waitUntil: "domcontentloaded", timeout: gotoMs });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logJson("steam_worker_trade_goto_failed", { accountId, message: msg });
+      return {
+        ok: false,
+        error: "puppeteer_error",
+        detail: msg,
+        items: [],
+        sessionInvalid: false,
+        timedOut: false,
+      };
+    }
     lastInventoryJsonAt = Date.now();
+    const urlAfterTradeNav = page.url();
+    if (urlAfterTradeNav.startsWith("chrome-error://")) {
+      logJson("steam_worker_navigation_chrome_error", {
+        accountId,
+        pageUrl: urlAfterTradeNav,
+        hint: "proxy_tunnel_tls_or_blocked",
+      });
+      return {
+        ok: false,
+        error: "proxy_error",
+        detail: "chrome_error_page_after_trade_goto",
+        items: [],
+        sessionInvalid: false,
+        timedOut: false,
+      };
+    }
     await page
       .waitForFunction(() => document.readyState === "complete", { timeout: 15_000, polling: 250 })
       .catch(() => {});
