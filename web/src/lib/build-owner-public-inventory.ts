@@ -6,9 +6,9 @@
 import { getOwnerCachedStaleWhileRevalidate, invCacheLog, setCache } from "@/lib/inventory-cache";
 import { filterJunkFromOwnerSteamItems } from "@/lib/owner-inventory-filters";
 import {
-  filterSteamItemsTradableForTradeTab,
   getOwnerManualLockDisplayItems,
   mergeOwnerSteamAndManualLockJson,
+  splitOwnerSteamSelectableAndTradeLockedForStore,
   type OwnerPublicInventoryRow,
 } from "@/lib/owner-manual-trade-lock";
 import { fetchOwnerInventory, type NormalizedItem } from "@/lib/steam-inventory";
@@ -42,8 +42,8 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
     );
   }
 
-  const steamTradable = filterSteamItemsTradableForTradeTab(items);
+  const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
   const manualLock = await getOwnerManualLockDisplayItems();
-  const merged = mergeOwnerSteamAndManualLockJson(steamTradable, manualLock);
+  const merged = mergeOwnerSteamAndManualLockJson(selectable, steamTradeLocked, manualLock);
   return { ok: true, items: merged, manualLockCount: manualLock.length, steamCacheWasStale };
 }

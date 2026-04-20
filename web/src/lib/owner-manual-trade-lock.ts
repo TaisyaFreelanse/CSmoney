@@ -1,8 +1,9 @@
 /**
  * Owner/store: trade-lock-only JSON from admin (paste Steam export, often context 16).
  *
- * Public inventory = live Steam (context 2, tradable-only slice) **concat** normalized JSON rows,
- * with JSON rows marked `locked: true`. No matching or merging by assetid between sources.
+ * Public inventory = live Steam **selectable** slice (tradable + no active time lock) **concat**
+ * remaining live Steam rows (trade-locked / not tradable; shown dimmed via `tradable` / `tradeLockUntil`)
+ * **concat** normalized manual JSON rows with `locked: true`. No matching or merging by assetid between sources.
  *
  * Rule keys (assetIds / classInstanceKeys) remain for admin diagnostics; optional file fallback for display JSON.
  */
@@ -112,20 +113,36 @@ export function filterSteamItemsTradableForTradeTab(items: NormalizedItem[]): No
 }
 
 /**
- * Single public list: tradable Steam slice first, then manual JSON rows (locked, not selectable).
- * Sources are not deduped — admin should upload lock-only JSON that does not duplicate tradable Steam rows.
+ * Split full normalized owner Steam list into rows the trade tab can select vs the rest (still shown in store UI).
+ */
+export function splitOwnerSteamSelectableAndTradeLockedForStore(items: NormalizedItem[]): {
+  selectable: NormalizedItem[];
+  steamTradeLocked: NormalizedItem[];
+} {
+  const selectable = filterSteamItemsTradableForTradeTab(items);
+  const selectableIds = new Set(selectable.map((i) => String(i.assetId)));
+  const steamTradeLocked = items.filter((i) => !selectableIds.has(String(i.assetId)));
+  return { selectable, steamTradeLocked };
+}
+
+/**
+ * Single public list: selectable Steam first, then other live Steam (trade lock / not tradable; `locked: false`
+ * so the client uses `tradable` / `tradeLockUntil` for dim + padlock), then manual JSON (`locked: true`).
+ * Sources are not deduped — admin should upload lock-only JSON that does not duplicate live Steam rows.
  */
 export function mergeOwnerSteamAndManualLockJson(
-  steamTradable: NormalizedItem[],
+  steamSelectable: NormalizedItem[],
+  steamTradeLocked: NormalizedItem[],
   manualLockNormalized: NormalizedItem[],
 ): OwnerPublicInventoryRow[] {
-  const steamPart: OwnerPublicInventoryRow[] = steamTradable.map((i) => ({ ...i, locked: false }));
+  const selectablePart: OwnerPublicInventoryRow[] = steamSelectable.map((i) => ({ ...i, locked: false }));
+  const steamLockedPart: OwnerPublicInventoryRow[] = steamTradeLocked.map((i) => ({ ...i, locked: false }));
   const manualPart: OwnerPublicInventoryRow[] = manualLockNormalized.map((i) => ({
     ...i,
     locked: true,
     tradable: false,
   }));
-  return [...steamPart, ...manualPart];
+  return [...selectablePart, ...steamLockedPart, ...manualPart];
 }
 
 export type OwnerManualTradeLockDiagnostics = {

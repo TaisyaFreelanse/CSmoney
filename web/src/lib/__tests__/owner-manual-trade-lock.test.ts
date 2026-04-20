@@ -102,10 +102,24 @@ describe("mergeOwnerSteamAndManualLockJson", () => {
   it("appends manual rows with locked true and tradable false", () => {
     const steam = [baseItem("1", true)];
     const manual = [baseItem("99", true, "cx", "ix")];
-    const merged = mergeOwnerSteamAndManualLockJson(steam, manual);
+    const merged = mergeOwnerSteamAndManualLockJson(steam, [], manual);
     expect(merged).toHaveLength(2);
     expect(merged[0].locked).toBe(false);
     expect(merged[1].locked).toBe(true);
     expect(merged[1].tradable).toBe(false);
+  });
+
+  it("inserts steam trade-locked slice between selectable and manual with locked false", () => {
+    const future = new Date(Date.now() + 864e5 * 5).toISOString();
+    const selectable = [baseItem("1", true)];
+    const steamLocked = [{ ...baseItem("2", true), tradeLockUntil: future }];
+    const manual = [baseItem("99", true, "cx", "ix")];
+    const merged = mergeOwnerSteamAndManualLockJson(selectable, steamLocked, manual);
+    expect(merged).toHaveLength(3);
+    expect(merged.map((i) => i.assetId)).toEqual(["1", "2", "99"]);
+    expect(merged[0].locked).toBe(false);
+    expect(merged[1].locked).toBe(false);
+    expect(merged[1].tradeLockUntil).toBe(future);
+    expect(merged[2].locked).toBe(true);
   });
 });

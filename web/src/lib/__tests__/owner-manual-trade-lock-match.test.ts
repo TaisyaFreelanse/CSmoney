@@ -95,7 +95,7 @@ describe("manual trade lock matches normalized inventory (realistic types)", () 
     expect(steam).toHaveLength(1);
     expect(manual).toHaveLength(1);
 
-    const merged = mergeOwnerSteamAndManualLockJson(steam, manual);
+    const merged = mergeOwnerSteamAndManualLockJson(steam, [], manual);
     expect(merged).toHaveLength(2);
     expect(merged[0].locked).toBe(false);
     expect(merged[0].assetId).toBe("111");
