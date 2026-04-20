@@ -42,11 +42,15 @@ function matchesM9GammaDoppler(row) {
   return /m9 bayonet.*gamma doppler|gamma doppler.*m9 bayonet/i.test(a);
 }
 
-/** Тест-кейс: float ~0.0285 + paint 570 (Phase 2); имя может быть пустым после merge-восстановления. */
+/** Тест-кейс: M9 Gamma Phase 2 — float ~0.0285 + paint 570 (имя может быть пустым из-за merge). */
 function matchesTradeLockCase(row) {
   const f = Number(row?.floatValue);
   const p = Number(row?.paintIndex);
-  if (Number.isFinite(f) && Math.abs(f - 0.0285) < 0.002 && p === 570) return true;
+  const n = String(row?.market_hash_name ?? row?.name ?? "");
+  const m9 = /m9/i.test(n) && /gamma/i.test(n) && /doppler/i.test(n);
+  if (m9 && Number.isFinite(f) && Math.abs(f - 0.0285) < 0.002 && p === 570) return true;
+  /** Восстановленный из hex asset без привязанного `market_hash_name` в merge. */
+  if (!n.trim() && Number.isFinite(f) && Math.abs(f - 0.0285) < 0.002 && p === 570) return true;
   if (!matchesM9GammaDoppler(row)) return false;
   if (!Number.isFinite(f)) return false;
   return Math.abs(f - 0.0285) < 0.002;
