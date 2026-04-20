@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "login": "node scripts/login.mjs"
+    "login": "node scripts/login.mjs",
+    "audit:trade-floats": "node scripts/audit-trade-float-batch.mjs"
   },
   "dependencies": {
     "axios": "^1.7.9",
