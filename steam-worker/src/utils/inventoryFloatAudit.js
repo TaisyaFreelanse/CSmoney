@@ -219,7 +219,7 @@ export function auditSteamTradeRaw(raw) {
     return {
       total: 0,
       withFloatSteam: 0,
-      withoutFloat: 0,
+      withoutFloatSteam: 0,
       withFloatMergedSources: 0,
       withoutFloatMergedSources: 0,
       withPaintIndexPid7: 0,
@@ -311,7 +311,7 @@ export function auditSteamTradeRaw(raw) {
   return {
     total,
     withFloatSteam,
-    withoutFloat: total - withFloatSteam,
+    withoutFloatSteam: total - withFloatSteam,
     withFloatMergedSources,
     withoutFloatMergedSources: total - withFloatMergedSources,
     withPaintIndexPid7,

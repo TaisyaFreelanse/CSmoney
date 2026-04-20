@@ -71,7 +71,6 @@ for (const tradeUrl of urls) {
 }
 
 const okRows = perTrade.filter((p) => p.audit && p.audit.total > 0);
-const totalItems = sumAgg(okRows, null);
 let sumTotal = 0;
 let sumFloatRg = 0;
 let sumFloatMerged = 0;
