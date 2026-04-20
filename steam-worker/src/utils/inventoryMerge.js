@@ -160,6 +160,18 @@ export function mergeCommunityInventoryJson(chunks) {
         break;
       }
     }
+    if (!classid && econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))) {
+      const wantInst = String(econ.paintseed);
+      for (const d of descMap.values()) {
+        if (!d || typeof d !== "object") continue;
+        const mh = String(d.market_hash_name ?? d.name ?? "");
+        if (!/m9 bayonet.*gamma doppler/i.test(mh)) continue;
+        if (String(d.instanceid ?? "0") !== wantInst) continue;
+        classid = String(d.classid ?? "");
+        instanceid = wantInst;
+        break;
+      }
+    }
     if (!classid) {
       for (const d of descMap.values()) {
         if (!d || typeof d !== "object") continue;

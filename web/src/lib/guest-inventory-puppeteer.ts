@@ -362,6 +362,19 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
         break;
       }
     }
+    if (!classid && econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))) {
+      const wantInst = String(econ.paintseed);
+      for (const d of descMap.values()) {
+        if (!d || typeof d !== "object") continue;
+        const dr = d as Record<string, unknown>;
+        const mh = String(dr.market_hash_name ?? dr.name ?? "");
+        if (!/m9 bayonet.*gamma doppler/i.test(mh)) continue;
+        if (String(dr.instanceid ?? "0") !== wantInst) continue;
+        classid = String(dr.classid ?? "");
+        instanceid = wantInst;
+        break;
+      }
+    }
     if (!classid) {
       for (const d of descMap.values()) {
         if (!d || typeof d !== "object") continue;

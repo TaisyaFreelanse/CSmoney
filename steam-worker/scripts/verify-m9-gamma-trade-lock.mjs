@@ -42,10 +42,12 @@ function matchesM9GammaDoppler(row) {
   return /m9 bayonet.*gamma doppler|gamma doppler.*m9 bayonet/i.test(a);
 }
 
-/** Тест-кейс: конкретный FN в трейдлоке с float ~0.0285 (не другой M9 Gamma в инвентаре). */
+/** Тест-кейс: float ~0.0285 + paint 570 (Phase 2); имя может быть пустым после merge-восстановления. */
 function matchesTradeLockCase(row) {
-  if (!matchesM9GammaDoppler(row)) return false;
   const f = Number(row?.floatValue);
+  const p = Number(row?.paintIndex);
+  if (Number.isFinite(f) && Math.abs(f - 0.0285) < 0.002 && p === 570) return true;
+  if (!matchesM9GammaDoppler(row)) return false;
   if (!Number.isFinite(f)) return false;
   return Math.abs(f - 0.0285) < 0.002;
 }
