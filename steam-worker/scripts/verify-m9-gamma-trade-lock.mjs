@@ -56,6 +56,7 @@ function pick(arr) {
   if (byAsset) {
     const hit = (arr || []).find((r) => String(r?.assetid) === byAsset);
     if (hit) return hit;
+    return null;
   }
   return (arr || []).find(matchesTradeLockCase) ?? null;
 }
@@ -73,11 +74,30 @@ if (!res.ok || j.error) {
   process.exit(1);
 }
 
+const byAsset = process.env.TARGET_ASSET_ID?.trim();
 const main = pick(j.mainItems);
 const lock = pick(j.itemsFromTradeLock);
 const any = pick(j.items);
 
 const allM9Gamma = (j.items || []).filter(matchesM9GammaDoppler);
+
+if (byAsset && !any) {
+  console.log(
+    JSON.stringify(
+      {
+        verdict: "FAIL",
+        reason: "TARGET_ASSET_ID_not_in_inventory_response",
+        hint: "Укажите tradeUrl того аккаунта, где предмет реально в partnerinventory (тот же partner/token).",
+        tradeUrl: tradeUrl.slice(0, 120),
+        TARGET_ASSET_ID: byAsset,
+        itemCount: j.items?.length ?? 0,
+      },
+      null,
+      2,
+    ),
+  );
+  process.exit(1);
+}
 
 const floatOk = (v) => v != null && Math.abs(Number(v) - 0.0285) < 0.002;
 const paintOk = (v) => Number(v) === 570;
