@@ -1,9 +1,10 @@
 /**
  * Owner/store: trade-lock-only JSON from admin (paste Steam export, often context 16).
  *
- * Public inventory = live Steam **selectable** slice (tradable + no active time lock) **concat**
- * remaining live Steam rows (trade-locked / not tradable; shown dimmed via `tradable` / `tradeLockUntil`)
- * **concat** normalized manual JSON rows with `locked: true`. No matching or merging by assetid between sources.
+ * `mergeOwnerSteamAndManualLockJson` can concatenate: tradable Steam slice + optional middle slice
+ * (e.g. trade-locked Steam; pass `[]` if the storefront should hide them) + manual JSON rows with `locked: true`.
+ * `build-owner-public-inventory` passes an empty Steam-locked middle slice so the store only shows tradable
+ * live Steam rows plus admin lock display rows. No matching or merging by assetid between sources.
  *
  * Rule keys (assetIds / classInstanceKeys) remain for admin diagnostics; optional file fallback for display JSON.
  */

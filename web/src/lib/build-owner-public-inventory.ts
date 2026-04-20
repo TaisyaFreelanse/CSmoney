@@ -1,6 +1,8 @@
 /**
  * Builds the same owner inventory list as GET /api/inventory/owner (before price enrichment).
- * Used for trade validation so server checks against merged Steam + manual-lock rows.
+ * Steam: только строки, доступные для обмена (tradable + без активного tradeLockUntil).
+ * Предметы в трейдлоке / не tradable в витрину не попадают; ручной admin-lock JSON — по-прежнему в конце списка.
+ * Используется и для POST /api/trades (проверка asset id против этого же списка).
  */
 
 import { getOwnerCachedStaleWhileRevalidate, invCacheLog, setCache } from "@/lib/inventory-cache";
@@ -49,7 +51,7 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
 
   const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
   const manualLock = await getOwnerManualLockDisplayItems();
-  const merged = mergeOwnerSteamAndManualLockJson(selectable, steamTradeLocked, manualLock);
+  const merged = mergeOwnerSteamAndManualLockJson(selectable, [], manualLock);
   const whitelist = parseEnvAssetIdSet(process.env.OWNER_STORE_VISIBLE_ASSET_IDS);
   const whitelistMissing = listWhitelistAssetIdsMissingFromRows(whitelist, merged);
   if (whitelistMissing.length > 0) {
@@ -62,7 +64,7 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
   }
   const mergedForStore = filterOwnerStorePublicRows(merged);
   invCacheLog(
-    `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLocked=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length} storeAfterFilter=${mergedForStore.length}`,
+    `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLockedDropped=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length} storeAfterFilter=${mergedForStore.length}`,
   );
   const manualLockCount = mergedForStore.filter((i) => i.locked === true).length;
   return { ok: true, items: mergedForStore, manualLockCount, steamCacheWasStale };
