@@ -39,6 +39,48 @@ function phaseFromPaintIndex(paintIndex, itemName) {
   return PAINT_INDEX_PHASE[paintIndex] ?? null;
 }
 
+/** Парсинг даты из строк Steam (GMT); зеркало web `steamTradeLockMiddleToIso`. */
+function steamTradeLockMiddleToIso(middle) {
+  let s = String(middle ?? "").trim();
+  if (!s) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+
+  s = s.replace(/\s*\((\d{1,2}:\d{2}(?::\d{2})?)\)\s*/gi, " $1 ");
+  s = s.replace(/\s*\([^)]*\)/g, "");
+  s = s.replace(/\s*GMT\s*$/i, "").trim();
+  if (!s) return null;
+
+  const parsed = new Date(`${s} GMT`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+/** Как trade UI: будущая дата в описаниях = трейдхолд даже при `tradable: 1`. */
+function detectTradeLockUntilIso(descriptions) {
+  if (!Array.isArray(descriptions)) return null;
+  for (const d of descriptions) {
+    if (!d || typeof d !== "object") continue;
+    const val = d.value ?? "";
+    const patterns = [
+      /Tradable After\s+(.+)/i,
+      /Tradable\s*\/\s*Marketable\s*After\s+(.+)/i,
+      /(?:cannot be (?:traded|consumed|modified|transferred) until|trade cooldown[^:]*:\s*)(.+)/i,
+      /(?:Trade Protected|Торговая блокировка)[^a-zA-Z]*(?:until|до)\s+(.+)/i,
+    ];
+    for (const re of patterns) {
+      const m = re.exec(val);
+      if (m) {
+        const iso = steamTradeLockMiddleToIso(m[1]);
+        if (iso) return iso;
+      }
+    }
+  }
+  return null;
+}
+
 function steamClassInstanceKey(classid, instanceid) {
   const c =
     classid !== undefined && classid !== null && String(classid).trim() !== "" ? String(classid) : "";
@@ -94,7 +136,14 @@ export function buildWorkerTradeItemLists(merged) {
     if (!assetid || !cid) continue;
 
     const name = desc?.market_hash_name ?? desc?.name ?? "";
-    const tradable = desc?.tradable === 1 || desc?.tradable === true;
+    const steamTradable = desc?.tradable === 1 || desc?.tradable === true;
+    const tradeLockUntilIso = detectTradeLockUntilIso(desc?.descriptions);
+    const hasFutureLock =
+      tradeLockUntilIso != null &&
+      !Number.isNaN(new Date(tradeLockUntilIso).getTime()) &&
+      new Date(tradeLockUntilIso).getTime() > Date.now();
+    /** В `itemsFromTradeLock` — как в trade UI: не tradable у Steam ИЛИ будущий unlock из текста. */
+    const inTradeHold = !steamTradable || hasFutureLock;
 
     const rows = assetPropsMap.get(assetid) ?? [];
     const floatPid2 = extractFloatFromPropertyRows(rows);
@@ -132,7 +181,9 @@ export function buildWorkerTradeItemLists(merged) {
       amount: a.amount != null ? Number(a.amount) : 1,
       market_hash_name: desc?.market_hash_name ?? null,
       name: desc?.name ?? null,
-      tradable,
+      tradable: steamTradable,
+      tradeLockUntil: tradeLockUntilIso,
+      inTradeHold,
       floatValue: floatValue != null && floatValue > 0 ? floatValue : null,
       floatSource,
       paintIndex,
@@ -140,8 +191,8 @@ export function buildWorkerTradeItemLists(merged) {
       inspectHex,
     };
 
-    if (tradable) mainItems.push(row);
-    else itemsFromTradeLock.push(row);
+    if (inTradeHold) itemsFromTradeLock.push(row);
+    else mainItems.push(row);
   }
 
   const items = [...mainItems, ...itemsFromTradeLock];

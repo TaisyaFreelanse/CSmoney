@@ -717,6 +717,22 @@ describe("normalizeInventory — trade hold / tradable", () => {
     expect(item.tradeLockUntil).toBe("2020-01-01T00:00:00.000Z");
     expect(isEffectivelyTradeLocked(item, new Date("2026-01-01T00:00:00.000Z"))).toBe(false);
   });
+
+  it("parses Tradable/Marketable After when Steam still sends tradable 1 (mobile-style line)", () => {
+    const raw = {
+      assets: [{ assetid: "104", classid: "C", instanceid: "I", amount: "1" }],
+      descriptions: [
+        minimalDesc({
+          tradable: 1,
+          marketable: 0,
+          descriptions: [{ value: "Tradable/Marketable After Apr 27, 2026 (7:00:00) GMT" }],
+        }),
+      ],
+    };
+    const [item] = normalizeInventory(raw);
+    expect(item.tradeLockUntil).toBe("2026-04-27T07:00:00.000Z");
+    expect(isEffectivelyTradeLocked(item, new Date("2026-01-01T00:00:00.000Z"))).toBe(true);
+  });
 });
 
 describe("resolveOwnerInventoryContextId", () => {

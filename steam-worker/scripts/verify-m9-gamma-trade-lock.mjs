@@ -111,8 +111,7 @@ if (!lock && !main && !any) {
 } else if (main && !lock) {
   reason = "in_mainItems_not_trade_lock_list_or_wrong_float_filter";
 } else if (lock) {
-  if (lock.tradable === true) reason = "lock_row_tradable_true";
-  else if (!floatOk(lock.floatValue)) reason = `float_mismatch got=${lock.floatValue}`;
+  if (!floatOk(lock.floatValue)) reason = `float_mismatch got=${lock.floatValue}`;
   else if (!paintOk(lock.paintIndex)) reason = `paintIndex_expected_570 got=${lock.paintIndex}`;
   else if (!hexOk(lock.inspectHex ?? "")) reason = "missing_or_invalid_inspectHex";
   else verdict = "OK";
@@ -131,6 +130,8 @@ console.log(
             market_hash_name: lock.market_hash_name,
             name: lock.name,
             tradable: lock.tradable,
+            inTradeHold: lock.inTradeHold,
+            tradeLockUntil: lock.tradeLockUntil,
             floatValue: lock.floatValue,
             floatSource: lock.floatSource,
             paintIndex: lock.paintIndex,

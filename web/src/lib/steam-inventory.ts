@@ -617,6 +617,7 @@ function detectTradeLock(
 
     const patterns = [
       /Tradable After\s+(.+)/i,
+      /Tradable\s*\/\s*Marketable\s*After\s+(.+)/i,
       /(?:cannot be (?:traded|consumed|modified|transferred) until|trade cooldown[^:]*:\s*)(.+)/i,
       /(?:Trade Protected|Торговая блокировка)[^a-zA-Z]*(?:until|до)\s+(.+)/i,
     ];
