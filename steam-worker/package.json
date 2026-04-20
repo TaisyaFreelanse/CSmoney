@@ -13,6 +13,7 @@
     "audit:trade-floats": "node scripts/audit-trade-float-batch.mjs"
   },
   "dependencies": {
+    "@csfloat/cs2-inspect-serializer": "^1.1.6",
     "axios": "^1.7.9",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",

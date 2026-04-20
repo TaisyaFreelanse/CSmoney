@@ -2,6 +2,37 @@ function descKeyFromRow(row) {
   return `${row.classid}_${row.instanceid ?? "0"}`;
 }
 
+/** Merge `rgAssetProperties` blobs from several XHR/API pages (last propertyid wins per asset). */
+function mergeRgAssetPropertyMaps(chunks) {
+  /** @type {Record<string, unknown[]>} */
+  const out = {};
+  for (const chunk of chunks) {
+    if (!chunk || typeof chunk !== "object") continue;
+    const j = chunk;
+    const rg = j.rgAssetProperties;
+    if (rg == null || typeof rg !== "object" || Array.isArray(rg)) continue;
+    for (const [assetid, rows] of Object.entries(rg)) {
+      if (!Array.isArray(rows)) continue;
+      const id = String(assetid).trim();
+      if (!id) continue;
+      const prev = out[id];
+      if (!prev || prev.length === 0) {
+        out[id] = [...rows];
+        continue;
+      }
+      const byPid = new Map();
+      for (const p of prev) {
+        if (p && typeof p === "object" && p.propertyid != null) byPid.set(Number(p.propertyid), p);
+      }
+      for (const p of rows) {
+        if (p && typeof p === "object" && p.propertyid != null) byPid.set(Number(p.propertyid), p);
+      }
+      out[id] = [...byPid.values()];
+    }
+  }
+  return out;
+}
+
 /**
  * Merge Steam inventory JSON chunks (assets array or rgInventory / rgDescriptions).
  */
@@ -64,10 +95,14 @@ export function mergeCommunityInventoryJson(chunks) {
     if (!byAssetId.has(id)) byAssetId.set(id, a);
   }
 
+  const rgAssetProperties = mergeRgAssetPropertyMaps(chunks);
+  const hasRg = Object.keys(rgAssetProperties).length > 0;
+
   return {
     assets: [...byAssetId.values()],
     descriptions: Array.from(descMap.values()),
     asset_properties: allAssetProps,
+    ...(hasRg ? { rgAssetProperties } : {}),
   };
 }
 

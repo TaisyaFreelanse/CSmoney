@@ -4,6 +4,7 @@ import {
   isUsableInventoryJson,
   inventoryHasMoreItems,
 } from "../utils/inventoryMerge.js";
+import { buildWorkerTradeItemLists } from "../utils/inventoryWorkerItemLists.js";
 import { normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson } from "../utils/logger.js";
 import { runWithTimeout } from "../utils/runWithTimeout.js";
@@ -199,32 +200,6 @@ async function selectPartnerCs2Inventory(page) {
     TARGET_APPID,
     TARGET_CONTEXTID,
   );
-}
-
-function mergedToItems(merged) {
-  const descByKey = new Map();
-  for (const d of merged.descriptions ?? []) {
-    if (!d || typeof d !== "object") continue;
-    const k = `${d.classid}_${d.instanceid ?? "0"}`;
-    if (!descByKey.has(k)) descByKey.set(k, d);
-  }
-  const items = [];
-  for (const a of merged.assets ?? []) {
-    if (!a || typeof a !== "object") continue;
-    const cid = String(a.classid ?? "");
-    const iid = String(a.instanceid ?? "0");
-    const dk = `${cid}_${iid}`;
-    const desc = descByKey.get(dk) ?? descByKey.get(`${cid}_0`);
-    items.push({
-      assetid: String(a.assetid ?? a.id ?? ""),
-      classid: cid,
-      instanceid: iid,
-      amount: a.amount != null ? Number(a.amount) : 1,
-      market_hash_name: desc?.market_hash_name ?? null,
-      name: desc?.name ?? null,
-    });
-  }
-  return items;
 }
 
 /**
@@ -494,7 +469,15 @@ export async function fetchTradeInventory(opts) {
         steamTotal <= 0 ||
         (typeof prefetchAssetCountEarly === "number" && prefetchAssetCountEarly >= steamTotal));
 
-    if (!partnerCs2TradeOfferXhrSeen && prefetchAssetCountEarly > 0 && apiLooksCompleteForSkip) {
+    const allowSkipTradeXhrWhenApiComplete =
+      process.env.STEAM_WORKER_SKIP_TRADE_XHR_WHEN_API_COMPLETE === "1" ||
+      process.env.STEAM_WORKER_SKIP_TRADE_XHR_WHEN_API_COMPLETE === "true";
+    if (
+      allowSkipTradeXhrWhenApiComplete &&
+      !partnerCs2TradeOfferXhrSeen &&
+      prefetchAssetCountEarly > 0 &&
+      apiLooksCompleteForSkip
+    ) {
       xhrSkippedDueToCompleteApi = true;
       partnerCs2TradeOfferXhrSeen = true;
       lastResponseHadMoreItems = false;
@@ -526,7 +509,7 @@ export async function fetchTradeInventory(opts) {
 
       if (prefetchAssetCountEarly > 0 && alive.tradeSurfacePresent) {
         const mergedPartial = mergeCommunityInventoryJson([...prefetchedInventoryChunks]);
-        const partialItems = mergedToItems(mergedPartial);
+        const partialLists = buildWorkerTradeItemLists(mergedPartial);
         logJson("steam_worker_inventory_incomplete_no_trade_xhr", {
           accountId,
           prefetchAssets: prefetchAssetCountEarly,
@@ -538,7 +521,9 @@ export async function fetchTradeInventory(opts) {
           ok: false,
           error: "inventory_incomplete_no_trade_xhr",
           detail: "api_incomplete_or_partnerinventory_xhr_missing",
-          items: partialItems,
+          items: partialLists.items,
+          mainItems: partialLists.mainItems,
+          itemsFromTradeLock: partialLists.itemsFromTradeLock,
           raw: mergedPartial,
           sessionInvalid: false,
           timedOut: true,
@@ -587,7 +572,7 @@ export async function fetchTradeInventory(opts) {
     await Promise.allSettled(jsonBodyTasks);
 
     const merged = mergeCommunityInventoryJson([...prefetchedInventoryChunks, ...jsonChunks]);
-    const items = mergedToItems(merged);
+    const { items, mainItems, itemsFromTradeLock } = buildWorkerTradeItemLists(merged);
 
     logJson("steam_worker_inventory_ok", {
       accountId,
@@ -602,6 +587,8 @@ export async function fetchTradeInventory(opts) {
       ok: true,
       error: null,
       items,
+      mainItems,
+      itemsFromTradeLock,
       raw: merged,
       sessionInvalid: false,
       timedOut: false,

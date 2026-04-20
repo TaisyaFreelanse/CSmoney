@@ -1,5 +1,6 @@
 import { fetchTradeInventory } from "../puppeteer/fetchTradeInventory.js";
 import { fetchCommunityInventoryPaginated } from "../utils/fetchCommunityInventoryPaginated.js";
+import { buildWorkerTradeItemLists } from "../utils/inventoryWorkerItemLists.js";
 import { buildInventoryMetaV1 } from "../utils/inventoryResponseMeta.js";
 import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson, logInventoryEvent } from "../utils/logger.js";
@@ -163,11 +164,19 @@ export function createInventoryHandler(pool, taskQueue, cache) {
                 tradeOutcome: { ok: true },
               });
         const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
+        const lists =
+          cached.mainItems != null && cached.itemsFromTradeLock != null
+            ? { items: cached.items, mainItems: cached.mainItems, itemsFromTradeLock: cached.itemsFromTradeLock }
+            : cached.raw && typeof cached.raw === "object"
+              ? buildWorkerTradeItemLists(cached.raw)
+              : { items: cached.items, mainItems: cached.items, itemsFromTradeLock: [] };
         return {
           ok: true,
           status: 200,
           body: {
-            items: cached.items,
+            items: lists.items,
+            mainItems: lists.mainItems,
+            itemsFromTradeLock: lists.itemsFromTradeLock,
             raw: cached.raw,
             source: "trade",
             accountId: cached.accountId ?? "cache",
@@ -288,6 +297,8 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       });
       const body = {
         items: outcome.items,
+        mainItems: outcome.mainItems ?? outcome.items,
+        itemsFromTradeLock: outcome.itemsFromTradeLock ?? [],
         raw: outcome.raw ?? null,
         source: "trade",
         accountId: outcome.accountId,
@@ -297,6 +308,8 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       };
       cache.set(canonical, {
         items: outcome.items,
+        mainItems: outcome.mainItems,
+        itemsFromTradeLock: outcome.itemsFromTradeLock,
         accountId: outcome.accountId,
         meta,
         raw: outcome.raw ?? null,
@@ -334,15 +347,17 @@ export function createInventoryHandler(pool, taskQueue, cache) {
     return {
       ok: false,
       status,
-      body: {
-        items: outcome.items ?? [],
-        raw: outcome.raw ?? null,
-        source: "trade",
-        accountId: outcome.accountId ?? null,
-        durationMs: outcome.durationMs ?? 0,
-        error: outcome.error ?? outcome.detail ?? "unknown",
-        meta,
-      },
+        body: {
+          items: outcome.items ?? [],
+          mainItems: outcome.mainItems ?? outcome.items ?? [],
+          itemsFromTradeLock: outcome.itemsFromTradeLock ?? [],
+          raw: outcome.raw ?? null,
+          source: "trade",
+          accountId: outcome.accountId ?? null,
+          durationMs: outcome.durationMs ?? 0,
+          error: outcome.error ?? outcome.detail ?? "unknown",
+          meta,
+        },
     };
   };
 }
