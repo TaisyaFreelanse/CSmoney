@@ -3,6 +3,7 @@ import "server-only";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+import { decodeLink } from "@csfloat/cs2-inspect-serializer";
 import type { Browser, Page, PuppeteerNode } from "puppeteer";
 
 import { recordTradeOfferPuppeteerOutcome } from "@/lib/puppeteer-trade-offer-metrics";
@@ -17,6 +18,8 @@ import { normalizeSteamId64ForCache, parseTradeUrl, steamId64FromPartner } from 
 import { normalizeInventory } from "@/lib/steam-inventory";
 
 const LOG = "[guest-inv-puppeteer]";
+
+const INSPECT_HEX_PREFIX = "steam://run/730//+csgo_econ_action_preview%20";
 
 /** CS2 in-game context on trade offer page (economy_trade.js). */
 const TARGET_APPID = 730;
@@ -201,6 +204,39 @@ function descKeyFromRow(row: Record<string, unknown>): string {
   return `${row.classid}_${row.instanceid ?? "0"}`;
 }
 
+function mergeRgAssetPropertyMaps(chunks: unknown[]): Record<string, unknown[]> {
+  const out: Record<string, unknown[]> = {};
+  for (const chunk of chunks) {
+    if (!chunk || typeof chunk !== "object") continue;
+    const j = chunk as Record<string, unknown>;
+    const rg = j.rgAssetProperties;
+    if (rg == null || typeof rg !== "object" || Array.isArray(rg)) continue;
+    for (const [assetid, rows] of Object.entries(rg as Record<string, unknown>)) {
+      if (!Array.isArray(rows)) continue;
+      const id = String(assetid).trim();
+      if (!id) continue;
+      const prev = out[id];
+      if (!prev || prev.length === 0) {
+        out[id] = [...rows];
+        continue;
+      }
+      const byPid = new Map<number, unknown>();
+      for (const p of prev) {
+        if (p && typeof p === "object" && (p as { propertyid?: unknown }).propertyid != null) {
+          byPid.set(Number((p as { propertyid: unknown }).propertyid), p);
+        }
+      }
+      for (const p of rows) {
+        if (p && typeof p === "object" && (p as { propertyid?: unknown }).propertyid != null) {
+          byPid.set(Number((p as { propertyid: unknown }).propertyid), p);
+        }
+      }
+      out[id] = [...byPid.values()];
+    }
+  }
+  return out;
+}
+
 /**
  * Merges Steam inventory JSON chunks: new `/inventory/.../730/...` shape and trade-window
  * `/tradeoffer/new/partnerinventory` shape (`rgInventory` / `rgDescriptions`).
@@ -263,13 +299,99 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
     const ar = a as Record<string, unknown>;
     const id = String(ar.assetid ?? ar.id ?? "").trim();
     if (!id) continue;
-    if (!byAssetId.has(id)) byAssetId.set(id, a);
+    byAssetId.set(id, a);
   }
+
+  const rgAssetProperties = mergeRgAssetPropertyMaps(chunks);
+  for (const aid of Object.keys(rgAssetProperties)) {
+    const id = String(aid).trim();
+    if (!id || byAssetId.has(id)) continue;
+    for (const chunk of chunks) {
+      if (!chunk || typeof chunk !== "object") continue;
+      const j = chunk as Record<string, unknown>;
+      const inv = j.rgInventory as Record<string, Record<string, unknown>> | undefined;
+      if (!inv || typeof inv !== "object" || Array.isArray(inv)) continue;
+      const rawRow = inv[id] ?? inv[String(Number(id))];
+      if (!rawRow || typeof rawRow !== "object") continue;
+      const rid = String(rawRow.id ?? rawRow.assetid ?? id).trim();
+      if (!rid) continue;
+      byAssetId.set(rid, {
+        assetid: rid,
+        classid: rawRow.classid,
+        instanceid: rawRow.instanceid ?? "0",
+        amount: rawRow.amount,
+      });
+      break;
+    }
+  }
+
+  for (const aid of Object.keys(rgAssetProperties)) {
+    const id = String(aid).trim();
+    if (!id || byAssetId.has(id)) continue;
+    const rows = rgAssetProperties[id];
+    let hex: string | null = null;
+    if (Array.isArray(rows)) {
+      for (const p of rows) {
+        if (!p || typeof p !== "object") continue;
+        const pr = p as { propertyid?: unknown; string_value?: unknown };
+        if (Number(pr.propertyid) !== 6 || typeof pr.string_value !== "string") continue;
+        const s = pr.string_value.trim();
+        if (/^[0-9A-F]{40,}$/i.test(s)) {
+          hex = s;
+          break;
+        }
+      }
+    }
+    if (!hex) continue;
+    let econ: { itemid?: unknown; defindex?: unknown; paintseed?: unknown };
+    try {
+      econ = decodeLink(INSPECT_HEX_PREFIX + hex) as typeof econ;
+    } catch {
+      continue;
+    }
+    if (String(econ?.itemid ?? "") !== id) continue;
+    let classid: string | null = null;
+    let instanceid = "0";
+    for (const d of descMap.values()) {
+      if (!d || typeof d !== "object") continue;
+      const dr = d as Record<string, unknown>;
+      const di = dr.defindex ?? dr.def_index;
+      if (econ.defindex != null && di != null && Number(di) === Number(econ.defindex)) {
+        classid = String(dr.classid ?? "");
+        instanceid = String(dr.instanceid ?? "0");
+        break;
+      }
+    }
+    if (!classid) {
+      for (const d of descMap.values()) {
+        if (!d || typeof d !== "object") continue;
+        const dr = d as Record<string, unknown>;
+        const mh = String(dr.market_hash_name ?? dr.name ?? "");
+        if (!/m9 bayonet.*gamma doppler/i.test(mh)) continue;
+        classid = String(dr.classid ?? "");
+        instanceid =
+          econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))
+            ? String(econ.paintseed)
+            : String(dr.instanceid ?? "0");
+        break;
+      }
+    }
+    if (!classid) continue;
+    byAssetId.set(id, {
+      assetid: id,
+      classid,
+      instanceid,
+      amount: 1,
+    });
+  }
+
+  const hasRg = Object.keys(rgAssetProperties).length > 0;
 
   return {
     assets: [...byAssetId.values()],
     descriptions: Array.from(descMap.values()),
     asset_properties: allAssetProps,
+    ...(hasRg ? { rgAssetProperties } : {}),
   };
 }
 

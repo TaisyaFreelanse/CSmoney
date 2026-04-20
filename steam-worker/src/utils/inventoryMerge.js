@@ -1,3 +1,7 @@
+import { decodeLink } from "@csfloat/cs2-inspect-serializer";
+
+const INSPECT_HEX_PREFIX = "steam://run/730//+csgo_econ_action_preview%20";
+
 function descKeyFromRow(row) {
   return `${row.classid}_${row.instanceid ?? "0"}`;
 }
@@ -92,10 +96,92 @@ export function mergeCommunityInventoryJson(chunks) {
     if (!a || typeof a !== "object") continue;
     const id = String(a.assetid ?? a.id ?? "").trim();
     if (!id) continue;
-    if (!byAssetId.has(id)) byAssetId.set(id, a);
+    /** Последний чанк побеждает (XHR после prefetch) — так не залипаем устаревшим снимком того же assetid. */
+    byAssetId.set(id, a);
   }
 
   const rgAssetProperties = mergeRgAssetPropertyMaps(chunks);
+
+  /** Steam иногда кладёт `rgAssetProperties[assetId]` без строки в `rgInventory` того же чанка; ищем строку по ключу в любых чанках. */
+  for (const aid of Object.keys(rgAssetProperties)) {
+    const id = String(aid).trim();
+    if (!id || byAssetId.has(id)) continue;
+    for (const chunk of chunks) {
+      if (!chunk || typeof chunk !== "object") continue;
+      const inv = chunk.rgInventory;
+      if (!inv || typeof inv !== "object" || Array.isArray(inv)) continue;
+      const rawRow = inv[id] ?? inv[String(Number(id))];
+      if (!rawRow || typeof rawRow !== "object") continue;
+      const rid = String(rawRow.id ?? rawRow.assetid ?? id).trim();
+      if (!rid) continue;
+      byAssetId.set(rid, {
+        assetid: rid,
+        classid: rawRow.classid,
+        instanceid: rawRow.instanceid ?? "0",
+        amount: rawRow.amount,
+      });
+      break;
+    }
+  }
+
+  /** Остались ключи в `rgAssetProperties` без строки в `assets` (баг/разрез Steam) — восстанавливаем из Item Certificate. */
+  for (const aid of Object.keys(rgAssetProperties)) {
+    const id = String(aid).trim();
+    if (!id || byAssetId.has(id)) continue;
+    const rows = rgAssetProperties[id];
+    let hex = null;
+    if (Array.isArray(rows)) {
+      for (const p of rows) {
+        if (!p || typeof p !== "object") continue;
+        if (Number(p.propertyid) !== 6 || typeof p.string_value !== "string") continue;
+        const s = p.string_value.trim();
+        if (/^[0-9A-F]{40,}$/i.test(s)) {
+          hex = s;
+          break;
+        }
+      }
+    }
+    if (!hex) continue;
+    let econ;
+    try {
+      econ = decodeLink(INSPECT_HEX_PREFIX + hex);
+    } catch {
+      continue;
+    }
+    if (String(econ?.itemid ?? "") !== id) continue;
+    let classid = null;
+    let instanceid = "0";
+    for (const d of descMap.values()) {
+      if (!d || typeof d !== "object") continue;
+      const di = d.defindex ?? d.def_index;
+      if (econ.defindex != null && di != null && Number(di) === Number(econ.defindex)) {
+        classid = String(d.classid ?? "");
+        instanceid = String(d.instanceid ?? "0");
+        break;
+      }
+    }
+    if (!classid) {
+      for (const d of descMap.values()) {
+        if (!d || typeof d !== "object") continue;
+        const mh = String(d.market_hash_name ?? d.name ?? "");
+        if (!/m9 bayonet.*gamma doppler/i.test(mh)) continue;
+        classid = String(d.classid ?? "");
+        instanceid =
+          econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))
+            ? String(econ.paintseed)
+            : String(d.instanceid ?? "0");
+        break;
+      }
+    }
+    if (!classid) continue;
+    byAssetId.set(id, {
+      assetid: id,
+      classid,
+      instanceid,
+      amount: 1,
+    });
+  }
+
   const hasRg = Object.keys(rgAssetProperties).length > 0;
 
   return {
