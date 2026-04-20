@@ -11,7 +11,11 @@ import {
   splitOwnerSteamSelectableAndTradeLockedForStore,
   type OwnerPublicInventoryRow,
 } from "@/lib/owner-manual-trade-lock";
-import { filterOwnerStorePublicRows } from "@/lib/owner-store-visibility";
+import {
+  filterOwnerStorePublicRows,
+  listWhitelistAssetIdsMissingFromRows,
+  parseEnvAssetIdSet,
+} from "@/lib/owner-store-visibility";
 import { fetchOwnerInventory, type NormalizedItem } from "@/lib/steam-inventory";
 
 export type BuildOwnerPublicInventoryResult =
@@ -46,6 +50,16 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
   const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
   const manualLock = await getOwnerManualLockDisplayItems();
   const merged = mergeOwnerSteamAndManualLockJson(selectable, steamTradeLocked, manualLock);
+  const whitelist = parseEnvAssetIdSet(process.env.OWNER_STORE_VISIBLE_ASSET_IDS);
+  const whitelistMissing = listWhitelistAssetIdsMissingFromRows(whitelist, merged);
+  if (whitelistMissing.length > 0) {
+    invCacheLog(
+      `owner-store-whitelist-missing-assetIds=${whitelistMissing.join("|")} mergedTotal=${merged.length} hint=typo_or_wrong_steam_account_or_refresh_snapshot`,
+    );
+    console.warn(
+      `[build-owner-public-inventory] OWNER_STORE_VISIBLE_ASSET_IDS: not in merged inventory: ${whitelistMissing.join(", ")} (merged ${merged.length} rows). Check asset ids on the card / Steam.`,
+    );
+  }
   const mergedForStore = filterOwnerStorePublicRows(merged);
   invCacheLog(
     `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLocked=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length} storeAfterFilter=${mergedForStore.length}`,

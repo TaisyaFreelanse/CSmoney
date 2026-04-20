@@ -1,15 +1,40 @@
 import type { OwnerPublicInventoryRow } from "@/lib/owner-manual-trade-lock";
 
-/** Split on commas / whitespace; ignore empty tokens. */
+function stripOnePairQuotes(s: string): string {
+  const t = s.trim();
+  if (t.length >= 2) {
+    if (t.startsWith('"') && t.endsWith('"')) return t.slice(1, -1).trim();
+    if (t.startsWith("'") && t.endsWith("'")) return t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+/**
+ * Split on commas / whitespace / semicolons; trim CR/BOM; strip wrapping quotes (Render / copy-paste).
+ */
 export function parseEnvAssetIdSet(raw: string | undefined | null): Set<string> {
-  const s = raw?.trim();
+  let s = raw?.trim().replace(/^\uFEFF/, "") ?? "";
+  s = stripOnePairQuotes(s);
   if (!s) return new Set();
   const out = new Set<string>();
   for (const part of s.split(/[\s,;]+/)) {
-    const id = part.trim();
-    if (id) out.add(id);
+    let id = part.replace(/\r/g, "").trim();
+    if (!id) continue;
+    id = stripOnePairQuotes(id);
+    if (!id) continue;
+    out.add(id);
   }
   return out;
+}
+
+/** Whitelist ids that do not appear on any merged row (typos / wrong account / stale cache). */
+export function listWhitelistAssetIdsMissingFromRows(
+  visible: Set<string>,
+  rows: Pick<OwnerPublicInventoryRow, "assetId">[],
+): string[] {
+  if (visible.size === 0) return [];
+  const have = new Set(rows.map((r) => String(r.assetId)));
+  return [...visible].filter((id) => !have.has(id));
 }
 
 /**

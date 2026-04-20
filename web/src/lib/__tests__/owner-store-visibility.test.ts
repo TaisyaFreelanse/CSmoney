@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { filterOwnerStorePublicRows, parseEnvAssetIdSet } from "../owner-store-visibility";
+import {
+  filterOwnerStorePublicRows,
+  listWhitelistAssetIdsMissingFromRows,
+  parseEnvAssetIdSet,
+} from "../owner-store-visibility";
 import type { OwnerPublicInventoryRow } from "../owner-manual-trade-lock";
 
 function row(assetId: string, locked = false): OwnerPublicInventoryRow {
@@ -33,6 +37,23 @@ describe("parseEnvAssetIdSet", () => {
   it("returns empty for empty", () => {
     expect(parseEnvAssetIdSet("").size).toBe(0);
     expect(parseEnvAssetIdSet(undefined).size).toBe(0);
+  });
+
+  it("strips BOM and wrapping quotes (Render / copy-paste)", () => {
+    const s = parseEnvAssetIdSet('\uFEFF"111,222"');
+    expect([...s].sort()).toEqual(["111", "222"]);
+  });
+
+  it("strips CR and per-token quotes", () => {
+    const s = parseEnvAssetIdSet("333\r\n\"444\"");
+    expect([...s].sort()).toEqual(["333", "444"]);
+  });
+});
+
+describe("listWhitelistAssetIdsMissingFromRows", () => {
+  it("lists ids not present in rows", () => {
+    const miss = listWhitelistAssetIdsMissingFromRows(new Set(["1", "9"]), [row("1"), row("2")]);
+    expect(miss).toEqual(["9"]);
   });
 });
 
