@@ -45,5 +45,8 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
   const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
   const manualLock = await getOwnerManualLockDisplayItems();
   const merged = mergeOwnerSteamAndManualLockJson(selectable, steamTradeLocked, manualLock);
+  invCacheLog(
+    `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLocked=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length}`,
+  );
   return { ok: true, items: merged, manualLockCount: manualLock.length, steamCacheWasStale };
 }
