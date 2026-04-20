@@ -151,12 +151,15 @@ export function mergeCommunityInventoryJson(chunks) {
     if (String(econ?.itemid ?? "") !== id) continue;
     let classid = null;
     let instanceid = "0";
+    /** Строка `rgDescriptions` / `descriptions`, откуда взяли class/instance (для клона названия). */
+    let templateDesc = null;
     for (const d of descMap.values()) {
       if (!d || typeof d !== "object") continue;
       const di = d.defindex ?? d.def_index;
       if (econ.defindex != null && di != null && Number(di) === Number(econ.defindex)) {
         classid = String(d.classid ?? "");
         instanceid = String(d.instanceid ?? "0");
+        templateDesc = d;
         break;
       }
     }
@@ -169,6 +172,7 @@ export function mergeCommunityInventoryJson(chunks) {
         if (String(d.instanceid ?? "0") !== wantInst) continue;
         classid = String(d.classid ?? "");
         instanceid = wantInst;
+        templateDesc = d;
         break;
       }
     }
@@ -182,10 +186,21 @@ export function mergeCommunityInventoryJson(chunks) {
           econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))
             ? String(econ.paintseed)
             : String(d.instanceid ?? "0");
+        templateDesc = d;
         break;
       }
     }
     if (!classid) continue;
+
+    const descKey = descKeyFromRow({ classid, instanceid });
+    if (templateDesc && !descMap.has(descKey)) {
+      descMap.set(descKey, {
+        ...templateDesc,
+        classid,
+        instanceid,
+      });
+    }
+
     byAssetId.set(id, {
       assetid: id,
       classid,

@@ -352,6 +352,7 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
     if (String(econ?.itemid ?? "") !== id) continue;
     let classid: string | null = null;
     let instanceid = "0";
+    let templateDesc: Record<string, unknown> | null = null;
     for (const d of descMap.values()) {
       if (!d || typeof d !== "object") continue;
       const dr = d as Record<string, unknown>;
@@ -359,6 +360,7 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
       if (econ.defindex != null && di != null && Number(di) === Number(econ.defindex)) {
         classid = String(dr.classid ?? "");
         instanceid = String(dr.instanceid ?? "0");
+        templateDesc = dr;
         break;
       }
     }
@@ -372,6 +374,7 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
         if (String(dr.instanceid ?? "0") !== wantInst) continue;
         classid = String(dr.classid ?? "");
         instanceid = wantInst;
+        templateDesc = dr;
         break;
       }
     }
@@ -386,10 +389,17 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
           econ.paintseed != null && !Number.isNaN(Number(econ.paintseed))
             ? String(econ.paintseed)
             : String(dr.instanceid ?? "0");
+        templateDesc = dr;
         break;
       }
     }
     if (!classid) continue;
+
+    const descKey = descKeyFromRow({ classid, instanceid } as Record<string, unknown>);
+    if (templateDesc && !descMap.has(descKey)) {
+      descMap.set(descKey, { ...templateDesc, classid, instanceid });
+    }
+
     byAssetId.set(id, {
       assetid: id,
       classid,
