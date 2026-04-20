@@ -174,8 +174,8 @@ const T: Translations = {
     zh: "价格可能因磨损、花纹或贴纸而有所不同。",
   },
   centerPanelFiller: {
-    ru: "Подсказка: список магазина объединяет предметы, доступные к обмену из Steam, и отдельный список трейдлока из админки. Заблокированные карточки нельзя выбрать. Фильтры по типу и износу ниже влияют на общий список.",
-    en: "Tip: the store list merges Steam-tradable items and a separate trade-lock list from admin. Locked cards cannot be selected. Type and wear filters apply to the full list.",
+    ru: "Подсказка: витрина показывает из Steam всё, что доступно к выбору сейчас, плюс предметы в трейдлоке/не tradable (затемнённые), плюс при необходимости отдельный список из админки. Заблокированные карточки нельзя выбрать. Фильтры по типу и износу ниже влияют на общий список.",
+    en: "Tip: the store shows Steam items you can select now, plus trade-locked or non-tradable Steam rows (dimmed), plus an optional admin lock list. Locked cards cannot be selected. Type and wear filters apply to the full list.",
     zh: "提示：商店列表合并了 Steam 可交易物品与后台单独上传的交易锁定列表。锁定卡片不可选择。类型与磨损筛选作用于整个列表。",
   },
 

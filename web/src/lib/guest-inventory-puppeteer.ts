@@ -260,6 +260,8 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
           classid: a.classid,
           instanceid: a.instanceid ?? "0",
           amount: a.amount,
+          ...(a.tradable !== undefined && a.tradable !== null ? { tradable: a.tradable } : {}),
+          ...(a.marketable !== undefined && a.marketable !== null ? { marketable: a.marketable } : {}),
         });
       }
     }
@@ -397,7 +399,15 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
 
     const descKey = descKeyFromRow({ classid, instanceid } as Record<string, unknown>);
     if (templateDesc && !descMap.has(descKey)) {
-      descMap.set(descKey, { ...templateDesc, classid, instanceid });
+      const tplInst = String(templateDesc.instanceid ?? "0").trim();
+      const instOut = String(instanceid ?? "0").trim();
+      const sameInst = tplInst === instOut;
+      descMap.set(descKey, {
+        ...templateDesc,
+        classid,
+        instanceid,
+        ...(!sameInst ? { tradable: 0, marketable: 0 } : {}),
+      });
     }
 
     byAssetId.set(id, {
@@ -406,6 +416,39 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
       instanceid,
       amount: 1,
     });
+  }
+
+  for (const a of byAssetId.values()) {
+    if (!a || typeof a !== "object") continue;
+    const ar = a as Record<string, unknown>;
+    const classid = String(ar.classid ?? "").trim();
+    const instanceid = String(ar.instanceid ?? "0").trim();
+    if (!classid) continue;
+    const dk = descKeyFromRow({ classid, instanceid } as Record<string, unknown>);
+    if (descMap.has(dk)) continue;
+    let tpl: Record<string, unknown> | null =
+      (descMap.get(descKeyFromRow({ classid, instanceid: "0" } as Record<string, unknown>)) as Record<
+        string,
+        unknown
+      > | null) ?? null;
+    if (!tpl) {
+      for (const d of descMap.values()) {
+        if (d && typeof d === "object" && String((d as Record<string, unknown>).classid ?? "").trim() === classid) {
+          tpl = d as Record<string, unknown>;
+          break;
+        }
+      }
+    }
+    if (tpl && typeof tpl === "object") {
+      const tplInst = String(tpl.instanceid ?? "0").trim();
+      const sameInst = tplInst === instanceid;
+      descMap.set(dk, {
+        ...tpl,
+        classid,
+        instanceid,
+        ...(!sameInst ? { tradable: 0, marketable: 0 } : {}),
+      });
+    }
   }
 
   const hasRg = Object.keys(rgAssetProperties).length > 0;

@@ -59,6 +59,8 @@ export function mergeCommunityInventoryJson(chunks) {
           classid: a.classid,
           instanceid: a.instanceid ?? "0",
           amount: a.amount,
+          ...(a.tradable !== undefined && a.tradable !== null ? { tradable: a.tradable } : {}),
+          ...(a.marketable !== undefined && a.marketable !== null ? { marketable: a.marketable } : {}),
         });
       }
     }
@@ -194,10 +196,14 @@ export function mergeCommunityInventoryJson(chunks) {
 
     const descKey = descKeyFromRow({ classid, instanceid });
     if (templateDesc && !descMap.has(descKey)) {
+      const tplInst = String(templateDesc.instanceid ?? "0").trim();
+      const instOut = String(instanceid ?? "0").trim();
+      const sameInst = tplInst === instOut;
       descMap.set(descKey, {
         ...templateDesc,
         classid,
         instanceid,
+        ...(!sameInst ? { tradable: 0, marketable: 0 } : {}),
       });
     }
 
@@ -207,6 +213,35 @@ export function mergeCommunityInventoryJson(chunks) {
       instanceid,
       amount: 1,
     });
+  }
+
+  /** Asset row instanceid without a descriptions key (common after XHR merge) — clone any description for that classid. */
+  for (const a of byAssetId.values()) {
+    if (!a || typeof a !== "object") continue;
+    const classid = String(a.classid ?? "").trim();
+    const instanceid = String(a.instanceid ?? "0").trim();
+    if (!classid) continue;
+    const dk = descKeyFromRow({ classid, instanceid });
+    if (descMap.has(dk)) continue;
+    let tpl = descMap.get(descKeyFromRow({ classid, instanceid: "0" })) ?? null;
+    if (!tpl) {
+      for (const d of descMap.values()) {
+        if (d && typeof d === "object" && String(d.classid ?? "").trim() === classid) {
+          tpl = d;
+          break;
+        }
+      }
+    }
+    if (tpl && typeof tpl === "object") {
+      const tplInst = String(tpl.instanceid ?? "0").trim();
+      const sameInst = tplInst === instanceid;
+      descMap.set(dk, {
+        ...tpl,
+        classid,
+        instanceid,
+        ...(!sameInst ? { tradable: 0, marketable: 0 } : {}),
+      });
+    }
   }
 
   const hasRg = Object.keys(rgAssetProperties).length > 0;

@@ -234,6 +234,37 @@ describe("steamClassInstanceKey + normalizeInventory join", () => {
     expect(items).toHaveLength(1);
     expect(items[0].instanceId).toBe("");
   });
+
+  it("uses another instance row as template when asset instanceid has no description (XHR orphan)", () => {
+    const raw = {
+      assets: [{ assetid: "51178755989", classid: "7993043226", instanceid: "867", amount: 1 }],
+      descriptions: [
+        {
+          classid: "7993043226",
+          instanceid: "188530139",
+          market_hash_name: "★ M9 Bayonet | Gamma Doppler (Factory New)",
+          name: "★ M9 Bayonet | Gamma Doppler",
+          icon_url: "ico",
+          tradable: 0,
+          marketable: 0,
+          tags: [{ internal_name: "wearcategory", localized_tag_name: "Factory New" }],
+        },
+      ],
+      asset_properties: [
+        {
+          assetid: "51178755989",
+          asset_properties: [{ propertyid: 2, float_value: "0.028521" }],
+        },
+      ],
+    };
+    const items = normalizeInventory(raw);
+    expect(items).toHaveLength(1);
+    expect(items[0].assetId).toBe("51178755989");
+    expect(items[0].instanceId).toBe("867");
+    expect(items[0].floatValue).toBeCloseTo(0.028521, 5);
+    expect(items[0].marketHashName).toContain("M9 Bayonet");
+    expect(items[0].tradable).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

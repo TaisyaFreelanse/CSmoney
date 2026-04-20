@@ -5,6 +5,7 @@ import {
   filterSteamItemsTradableForTradeTab,
   itemMatchesOwnerManualLock,
   mergeOwnerSteamAndManualLockJson,
+  splitOwnerSteamSelectableAndTradeLockedForStore,
   type OwnerManualTradeLockRule,
 } from "../owner-manual-trade-lock";
 import type { NormalizedItem } from "../steam-inventory";
@@ -95,6 +96,25 @@ describe("filterSteamItemsTradableForTradeTab", () => {
     const items = [baseItem("1", true), { ...baseItem("2", true), tradeLockUntil: future }];
     const out = filterSteamItemsTradableForTradeTab(items);
     expect(out.map((i) => i.assetId)).toEqual(["1"]);
+  });
+});
+
+describe("splitOwnerSteamSelectableAndTradeLockedForStore", () => {
+  it("partitions live steam rows without overlap; union equals input count", () => {
+    const future = new Date(Date.now() + 864e5 * 3).toISOString();
+    const items = [
+      baseItem("a", true),
+      baseItem("b", false),
+      { ...baseItem("c", true), tradeLockUntil: future },
+    ];
+    const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
+    const selIds = new Set(selectable.map((i) => i.assetId));
+    const lockIds = new Set(steamTradeLocked.map((i) => i.assetId));
+    expect(selIds.size).toBe(selectable.length);
+    for (const id of selIds) expect(lockIds.has(id)).toBe(false);
+    expect(selIds.size + lockIds.size).toBe(items.length);
+    expect([...selIds].sort()).toEqual(["a"]);
+    expect([...lockIds].sort()).toEqual(["b", "c"]);
   });
 });
 

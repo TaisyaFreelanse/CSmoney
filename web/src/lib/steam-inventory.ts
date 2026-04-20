@@ -715,8 +715,31 @@ export function normalizeInventory(
     const iid = rawInstanceId(ar);
     if (cid === undefined || cid === null || String(cid).trim() === "") continue;
 
-    let desc = descMap.get(steamClassInstanceKey(cid, iid));
+    let desc: any = descMap.get(steamClassInstanceKey(cid, iid));
     if (!desc) desc = descMap.get(steamClassInstanceKey(cid, "0"));
+    /** XHR/partnerinventory may list an `instanceid` with no matching `descriptions[]` row; clone any row for the same classid (same def, different seed). */
+    if (!desc) {
+      for (const d of descriptions) {
+        if (!d || typeof d !== "object") continue;
+        const dr = d as Record<string, unknown>;
+        const dc = rawClassId(dr);
+        if (dc == null || String(dc).trim() === "") continue;
+        if (String(dc) !== String(cid)) continue;
+        const instOut =
+          iid !== undefined && iid !== null && String(iid).trim() !== ""
+            ? String(iid)
+            : String(dr.instanceid ?? dr.instanceId ?? "0");
+        const tplInst = String(dr.instanceid ?? dr.instanceId ?? "0").trim();
+        const sameInst = tplInst === instOut.trim();
+        desc = {
+          ...dr,
+          classid: cid,
+          instanceid: instOut,
+          ...(!sameInst ? { tradable: 0, marketable: 0 } : {}),
+        };
+        break;
+      }
+    }
 
     if (!desc) continue;
 
