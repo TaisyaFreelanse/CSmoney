@@ -42,9 +42,22 @@ function matchesM9GammaDoppler(row) {
   return /m9 bayonet.*gamma doppler|gamma doppler.*m9 bayonet/i.test(a);
 }
 
+/** Тест-кейс: конкретный FN в трейдлоке с float ~0.0285 (не другой M9 Gamma в инвентаре). */
+function matchesTradeLockCase(row) {
+  if (!matchesM9GammaDoppler(row)) return false;
+  const f = Number(row?.floatValue);
+  if (!Number.isFinite(f)) return false;
+  return Math.abs(f - 0.0285) < 0.002;
+}
+
 function pick(arr) {
   if (!Array.isArray(arr)) return null;
-  return arr.find(matchesM9GammaDoppler) ?? null;
+  const byAsset = process.env.TARGET_ASSET_ID?.trim();
+  if (byAsset) {
+    const hit = (arr || []).find((r) => String(r?.assetid) === byAsset);
+    if (hit) return hit;
+  }
+  return (arr || []).find(matchesTradeLockCase) ?? null;
 }
 
 const u = new URL("/inventory", base);
@@ -64,6 +77,8 @@ const main = pick(j.mainItems);
 const lock = pick(j.itemsFromTradeLock);
 const any = pick(j.items);
 
+const allM9Gamma = (j.items || []).filter(matchesM9GammaDoppler);
+
 const floatOk = (v) => v != null && Math.abs(Number(v) - 0.0285) < 0.002;
 const paintOk = (v) => Number(v) === 570;
 const hexOk = (h) => typeof h === "string" && /^[0-9A-F]{40,}$/i.test(h.trim());
@@ -72,9 +87,9 @@ let verdict = "FAIL";
 let reason = "";
 
 if (!lock && !main && !any) {
-  reason = "item_not_found";
+  reason = allM9Gamma.length ? "no_m9_gamma_with_float_~0.0285_use_TARGET_ASSET_ID" : "item_not_found";
 } else if (main && !lock) {
-  reason = "in_mainItems_not_trade_lock_list";
+  reason = "in_mainItems_not_trade_lock_list_or_wrong_float_filter";
 } else if (lock) {
   if (lock.tradable === true) reason = "lock_row_tradable_true";
   else if (!floatOk(lock.floatValue)) reason = `float_mismatch got=${lock.floatValue}`;
@@ -106,6 +121,13 @@ console.log(
       mainRowBrief: main
         ? { assetid: main.assetid, floatValue: main.floatValue, tradable: main.tradable }
         : null,
+      m9GammaCandidates: allM9Gamma.map((r) => ({
+        assetid: r.assetid,
+        floatValue: r.floatValue,
+        tradable: r.tradable,
+        paintIndex: r.paintIndex,
+        inLock: (j.itemsFromTradeLock || []).some((x) => String(x.assetid) === String(r.assetid)),
+      })),
     },
     null,
     2,
