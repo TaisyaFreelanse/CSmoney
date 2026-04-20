@@ -164,11 +164,12 @@ export function createInventoryHandler(pool, taskQueue, cache) {
                 tradeOutcome: { ok: true },
               });
         const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
+        /** Всегда пересчитываем списки из `raw`: в кэше могли лежать пустые `mainItems`/`itemsFromTradeLock` ([] !== null). */
         const lists =
-          cached.mainItems != null && cached.itemsFromTradeLock != null
-            ? { items: cached.items, mainItems: cached.mainItems, itemsFromTradeLock: cached.itemsFromTradeLock }
-            : cached.raw && typeof cached.raw === "object"
-              ? buildWorkerTradeItemLists(cached.raw)
+          cached.raw && typeof cached.raw === "object"
+            ? buildWorkerTradeItemLists(cached.raw)
+            : cached.mainItems != null && cached.itemsFromTradeLock != null
+              ? { items: cached.items, mainItems: cached.mainItems, itemsFromTradeLock: cached.itemsFromTradeLock }
               : { items: cached.items, mainItems: cached.items, itemsFromTradeLock: [] };
         return {
           ok: true,
