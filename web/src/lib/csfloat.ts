@@ -8,6 +8,8 @@ import "server-only";
 import crypto from "node:crypto";
 import https from "node:https";
 
+import { decodeLink } from "@csfloat/cs2-inspect-serializer";
+
 import type { NormalizedItem } from "./steam-inventory";
 import { getRedis } from "./redis-client";
 
@@ -99,6 +101,51 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/**
+ * Legacy inspect HTTP API host (s/a/d and ?url=). Some networks return NXDOMAIN for api.csfloat.com —
+ * override with CSFLOAT_INSPECT_API_BASE (no trailing slash), e.g. a self-hosted inspect proxy.
+ * Marketplace `https://csfloat.com/api/v1/...` is a different API and cannot resolve arbitrary Steam inspect links.
+ */
+function inspectApiBase(): string {
+  const raw = process.env.CSFLOAT_INSPECT_API_BASE?.trim();
+  const b = (raw && raw.length > 0 ? raw : "https://api.csfloat.com").replace(/\/+$/, "");
+  return b;
+}
+
+/**
+ * CS2 self-encoded inspect links (hex / Item Certificate) carry float + paint index in the payload.
+ * No HTTP — works when api.csfloat.com does not resolve. Classic S…A…D… links return null (need remote inspect).
+ */
+export function tryInspectFromSerializedLink(link: string): InspectData | null {
+  if (!link.includes("csgo_econ_action_preview")) return null;
+  let decoded = link;
+  try {
+    decoded = decodeURIComponent(link);
+  } catch {
+    decoded = link;
+  }
+  if (/S\d+A\d+D\d+/i.test(decoded)) return null;
+  if (/M\d+A\d+D\d+/i.test(decoded)) return null;
+
+  try {
+    const econ = decodeLink(link) as {
+      paintwear?: number;
+      paintindex?: number;
+      paintseed?: number;
+    };
+    const floatValue =
+      typeof econ.paintwear === "number" && !Number.isNaN(econ.paintwear) ? econ.paintwear : 0;
+    const paintIndex =
+      typeof econ.paintindex === "number" && !Number.isNaN(econ.paintindex) ? econ.paintindex : 0;
+    const paintSeed =
+      typeof econ.paintseed === "number" && !Number.isNaN(econ.paintseed) ? econ.paintseed : 0;
+    if (floatValue <= 0 && paintIndex <= 0 && paintSeed <= 0) return null;
+    return { floatValue, paintIndex, paintSeed };
+  } catch {
+    return null;
+  }
+}
+
 function httpsGet(
   url: string,
   headers: Record<string, string> = {},
@@ -130,6 +177,7 @@ async function fetchFromCsFloatOnceForInspectLink(
   link: string,
   apiKey: string,
 ): Promise<{ status: number; body: string } | null> {
+  const base = inspectApiBase();
   let decoded: string;
   try {
     decoded = decodeURIComponent(link);
@@ -143,13 +191,13 @@ async function fetchFromCsFloatOnceForInspectLink(
     const a = sad[2]!;
     const d = sad[3]!;
     if (s !== "0") {
-      const url = `https://api.csfloat.com/?s=${encodeURIComponent(s)}&a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
+      const url = `${base}/?s=${encodeURIComponent(s)}&a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
       return httpsGet(url, {
         Accept: "application/json",
         Authorization: apiKey,
       });
     }
-    const url = `https://api.csfloat.com/?a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
+    const url = `${base}/?a=${encodeURIComponent(a)}&d=${encodeURIComponent(d)}`;
     return httpsGet(url, {
       Accept: "application/json",
       Authorization: apiKey,
@@ -158,7 +206,7 @@ async function fetchFromCsFloatOnceForInspectLink(
 
   const mam = /M(\d+)A(\d+)D(\d+)/.exec(decoded);
   if (mam) {
-    const url = `https://api.csfloat.com/?m=${encodeURIComponent(mam[1]!)}&a=${encodeURIComponent(mam[2]!)}&d=${encodeURIComponent(mam[3]!)}`;
+    const url = `${base}/?m=${encodeURIComponent(mam[1]!)}&a=${encodeURIComponent(mam[2]!)}&d=${encodeURIComponent(mam[3]!)}`;
     return httpsGet(url, {
       Accept: "application/json",
       Authorization: apiKey,
@@ -166,7 +214,7 @@ async function fetchFromCsFloatOnceForInspectLink(
   }
 
   if (decoded.includes("csgo_econ_action_preview") || link.includes("csgo_econ_action_preview")) {
-    const url = `https://api.csfloat.com/?url=${encodeURIComponent(link)}`;
+    const url = `${base}/?url=${encodeURIComponent(link)}`;
     return httpsGet(url, {
       Accept: "application/json",
       Authorization: apiKey,
@@ -228,11 +276,13 @@ async function writeInspectTombstone(link: string): Promise<void> {
   await writeInspectCache(link, row);
 }
 
-async function fetchInspectDataFromApi(link: string): Promise<InspectData | null> {
+/** Remote inspect API only (requires CSFLOAT_API_KEY[s]). */
+async function fetchInspectDataFromHttp(link: string): Promise<InspectData | null> {
   const keys = parseApiKeys();
   if (keys.length === 0) return null;
 
   let delay = 400;
+  let loggedNetworkError = false;
   const maxAttempts = keys.length * 3;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const slot = (keyIndex + attempt) % keys.length;
@@ -280,7 +330,24 @@ async function fetchInspectDataFromApi(link: string): Promise<InspectData | null
       keyIndex = (slot + 1) % keys.length;
       return { floatValue, paintIndex, paintSeed };
     } catch (err) {
-      console.error("[csfloat] fetch error:", err);
+      const e = err as NodeJS.ErrnoException;
+      if (!loggedNetworkError && (e?.code === "ENOTFOUND" || e?.code === "EAI_AGAIN")) {
+        loggedNetworkError = true;
+        console.error(
+          JSON.stringify({
+            type: "csfloat_fetch",
+            event: "dns_or_network",
+            message: e?.message ?? String(err),
+            code: e?.code ?? null,
+            inspectApiBase: inspectApiBase(),
+            hint: "Set CSFLOAT_INSPECT_API_BASE to a reachable inspect proxy, or rely on hex inspect local decode (no HTTP).",
+            ts: Date.now(),
+          }),
+        );
+      } else if (!loggedNetworkError) {
+        console.error("[csfloat] fetch error:", err);
+        loggedNetworkError = true;
+      }
     } finally {
       releaseCsFloatSlot();
     }
@@ -323,6 +390,8 @@ export type CsFloatEnrichLog = {
   totalItems: number;
   newWithoutApi: number;
   sentToCsfloat: number;
+  /** Float/paint from CS2 hex inspect payload without calling inspect HTTP API. */
+  localHexDecode: number;
   cacheHits: number;
   enriched: number;
   failed: number;
@@ -342,18 +411,6 @@ export async function enrichNewItemsWithCsFloat(
 ): Promise<CsFloatEnrichLog> {
   const t0 = Date.now();
   const keys = parseApiKeys();
-  if (keys.length === 0) {
-    return {
-      totalItems: items.length,
-      newWithoutApi: 0,
-      sentToCsfloat: 0,
-      cacheHits: 0,
-      enriched: 0,
-      failed: 0,
-      durationMs: Date.now() - t0,
-      keyRotations: 0,
-    };
-  }
 
   const targets = items.filter(
     (i) => i.inspectLink && (i.floatValue == null || i.floatValue <= 0),
@@ -364,6 +421,7 @@ export async function enrichNewItemsWithCsFloat(
     JSON.stringify({
       type: "csfloat_enrich_start",
       keysConfigured: keys.length,
+      inspectApiBase: inspectApiBase(),
       inspectCacheTtlSec: TTL_SEC,
       apiAssetIdCount: apiAssetIds.size,
       itemsNeedingFloatRequest: targets.length,
@@ -377,6 +435,7 @@ export async function enrichNewItemsWithCsFloat(
   let enriched = 0;
   let failed = 0;
   let sentToCsfloat = 0;
+  let localHexDecode = 0;
   const keySlotStart = keyIndex;
 
   for (const item of targets) {
@@ -397,8 +456,17 @@ export async function enrichNewItemsWithCsFloat(
     let inflight = inspectInflight.get(link);
     if (!inflight) {
       inflight = (async (): Promise<InspectData | null> => {
+        const local = tryInspectFromSerializedLink(link);
+        if (local) {
+          localHexDecode++;
+          await writeInspectCache(link, local);
+          return local;
+        }
+        if (keys.length === 0) {
+          return null;
+        }
         sentToCsfloat++;
-        const data = await fetchInspectDataFromApi(link);
+        const data = await fetchInspectDataFromHttp(link);
         if (data === null) {
           await writeInspectTombstone(link);
           return null;
@@ -430,6 +498,7 @@ export async function enrichNewItemsWithCsFloat(
     totalItems: items.length,
     newWithoutApi,
     sentToCsfloat,
+    localHexDecode,
     cacheHits,
     enriched,
     failed,

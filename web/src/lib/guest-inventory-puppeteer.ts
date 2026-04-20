@@ -228,7 +228,16 @@ function mergeCommunityInventoryJson(chunks: unknown[]): unknown {
       }
     }
 
-    if (Array.isArray(j.asset_properties)) allAssetProps.push(...j.asset_properties);
+    if (Array.isArray(j.asset_properties)) {
+      allAssetProps.push(...j.asset_properties);
+    } else if (j.rgAssetProperties != null && typeof j.rgAssetProperties === "object" && !Array.isArray(j.rgAssetProperties)) {
+      const rg = j.rgAssetProperties as Record<string, unknown>;
+      for (const [assetid, rows] of Object.entries(rg)) {
+        if (Array.isArray(rows)) {
+          allAssetProps.push({ assetid, asset_properties: rows });
+        }
+      }
+    }
 
     if (Array.isArray(j.descriptions)) {
       for (const d of j.descriptions) {

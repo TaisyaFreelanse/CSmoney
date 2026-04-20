@@ -142,6 +142,44 @@ interface AssetPropertyExtract {
   stringProps: Map<number, string>;
 }
 
+/**
+ * Steam trade XHR / economy_trade.js often ships `rgAssetProperties` as an object keyed by `assetid`
+ * (array of `{ propertyid, float_value | int_value | string_value }`). Community JSON uses `asset_properties[]`.
+ */
+export function buildAssetPropsMapFromSteamRaw(raw: unknown): Map<string, Array<Record<string, unknown>>> {
+  const map = new Map<string, Array<Record<string, unknown>>>();
+  if (!raw || typeof raw !== "object") return map;
+  const r = raw as Record<string, unknown>;
+
+  const pushRows = (assetid: string, rows: Array<Record<string, unknown>>) => {
+    const id = String(assetid).trim();
+    if (!id || !Array.isArray(rows) || rows.length === 0) return;
+    const cur = map.get(id) ?? [];
+    map.set(id, [...cur, ...rows]);
+  };
+
+  if (Array.isArray(r.asset_properties)) {
+    for (const ap of r.asset_properties) {
+      if (!ap || typeof ap !== "object") continue;
+      const row = ap as Record<string, unknown>;
+      const aid = row.assetid ?? row.assetId;
+      const inner = row.asset_properties;
+      if (aid != null && Array.isArray(inner)) {
+        pushRows(String(aid), inner as Array<Record<string, unknown>>);
+      }
+    }
+  }
+
+  const rg = r.rgAssetProperties;
+  if (rg && typeof rg === "object" && !Array.isArray(rg)) {
+    for (const [assetid, rows] of Object.entries(rg as Record<string, unknown>)) {
+      if (Array.isArray(rows)) pushRows(assetid, rows as Array<Record<string, unknown>>);
+    }
+  }
+
+  return map;
+}
+
 function extractFromAssetProperties(
   assetProperties: Array<Record<string, unknown>> | undefined,
 ): AssetPropertyExtract {
@@ -449,14 +487,7 @@ function parseRawInventoryForInspect(raw: any): ParsedRawInventoryForInspect | n
   } else {
     return null;
   }
-  const assetPropsMap = new Map<string, any[]>();
-  if (Array.isArray(raw.asset_properties)) {
-    for (const ap of raw.asset_properties) {
-      if (ap.assetid && Array.isArray(ap.asset_properties)) {
-        assetPropsMap.set(String(ap.assetid), ap.asset_properties);
-      }
-    }
-  }
+  const assetPropsMap = buildAssetPropsMapFromSteamRaw(raw) as Map<string, any[]>;
   return { descriptions, assetPropsMap };
 }
 
@@ -495,8 +526,11 @@ export function hydrateMissingInspectLinksFromRaw(
     if (!desc) continue;
 
     const descRec = desc as Record<string, unknown>;
-    const propsForAsset = assetPropsMap.get(aid);
-    const { stringProps } = extractFromAssetProperties(propsForAsset);
+    const descInlineProps = Array.isArray(descRec.properties)
+      ? (descRec.properties as Array<Record<string, unknown>>)
+      : [];
+    const mergedProps = [...(assetPropsMap.get(aid) ?? []), ...descInlineProps];
+    const { stringProps } = extractFromAssetProperties(mergedProps);
     const inspectRaw = extractInspectLink(collectInspectActionArrays(descRec));
     const inspectLink =
       inspectRaw != null
@@ -670,15 +704,7 @@ export function normalizeInventory(
     if (!descMap.has(key)) descMap.set(key, d);
   }
 
-  // asset_properties is a SEPARATE top-level array in Steam's response
-  const assetPropsMap = new Map<string, any[]>();
-  if (Array.isArray(raw?.asset_properties)) {
-    for (const ap of raw.asset_properties) {
-      if (ap.assetid && Array.isArray(ap.asset_properties)) {
-        assetPropsMap.set(String(ap.assetid), ap.asset_properties);
-      }
-    }
-  }
+  const assetPropsMap = buildAssetPropsMapFromSteamRaw(raw) as Map<string, any[]>;
 
   const items: NormalizedItem[] = [];
   for (const a of assets) {
@@ -703,8 +729,11 @@ export function normalizeInventory(
     const itemName: string = desc.market_hash_name ?? desc.name ?? "";
 
     const assetId = String(ar.assetid ?? ar.assetId ?? ar.id ?? "");
-    const propsForAsset = assetPropsMap.get(String(assetId));
-    const { floatValue: apFloat, paintIndex, stringProps } = extractFromAssetProperties(propsForAsset);
+    const descInlineProps = Array.isArray(descRec.properties)
+      ? (descRec.properties as Array<Record<string, unknown>>)
+      : [];
+    const mergedPropRows = [...(assetPropsMap.get(String(assetId)) ?? []), ...descInlineProps];
+    const { floatValue: apFloat, paintIndex, stringProps } = extractFromAssetProperties(mergedPropRows);
     const apPhase = phaseFromPaintIndex(paintIndex, itemName);
     const phase =
       apPhase ??
@@ -1308,6 +1337,315 @@ export async function fetchGuestInventoryBySteamId64(
   const result = await fetchSteamInventoryRaw(steamId64, DEFAULT_CS2_INVENTORY_CONTEXT_ID);
   if (!result.ok) return result;
   return { ok: true, items: normalizeInventory(result.data, steamId64) };
+}
+
+// ---------------------------------------------------------------------------
+// Trade / partnerinventory JSON — float & phase coverage audit (no CSFloat)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rows from `rgAssetProperties[assetId]` on partnerinventory / trade XHR JSON.
+ * Returns `null` if `rgAssetProperties` is missing or not an object map.
+ */
+export function getRgAssetPropertyRows(
+  raw: unknown,
+  assetId: string,
+): Array<Record<string, unknown>> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const rg = (raw as Record<string, unknown>).rgAssetProperties;
+  if (rg == null || typeof rg !== "object" || Array.isArray(rg)) return null;
+  const rows = (rg as Record<string, unknown>)[String(assetId).trim()];
+  if (!Array.isArray(rows)) return null;
+  return rows as Array<Record<string, unknown>>;
+}
+
+/** `propertyid === 2` → `float_value` (Wear Rating). */
+export function extractFloatFromPropertyRows(
+  rows: Array<Record<string, unknown>> | null | undefined,
+): number | null {
+  if (!rows) return null;
+  for (const p of rows) {
+    const pid = Number(p.propertyid);
+    if (pid === 2 && p.float_value != null) {
+      const v = parseFloat(String(p.float_value));
+      if (!Number.isNaN(v) && v > 0) return v;
+    }
+  }
+  return null;
+}
+
+/** Finish Catalog — `propertyid === 7` → `int_value` (Doppler phase mapping). */
+export function extractPaintIndexPid7FromRows(
+  rows: Array<Record<string, unknown>> | null | undefined,
+): number | null {
+  if (!rows) return null;
+  for (const p of rows) {
+    const pid = Number(p.propertyid);
+    if (pid === 7 && p.int_value != null) {
+      const n = parseInt(String(p.int_value), 10);
+      if (!Number.isNaN(n)) return n;
+    }
+  }
+  return null;
+}
+
+/**
+ * Rare: `propertyid === 6` with `int_value` (normally pid 6 is Item Certificate hex `string_value`).
+ * Do not treat hex string as paint index.
+ */
+export function extractPid6IntIfAny(
+  rows: Array<Record<string, unknown>> | null | undefined,
+): number | null {
+  if (!rows) return null;
+  for (const p of rows) {
+    const pid = Number(p.propertyid);
+    if (pid !== 6 || p.int_value == null) continue;
+    const n = parseInt(String(p.int_value), 10);
+    if (!Number.isNaN(n)) return n;
+  }
+  return null;
+}
+
+export type SteamTradeFloatAuditSample = {
+  assetId: string;
+  marketHashName: string;
+  floatFromSteam: number | null;
+  /** Finish Catalog (propertyid 7) — used for Doppler phase in-app. */
+  paintIndexFromPid7: number | null;
+  /** Rare: int on pid 6; normally pid 6 is Item Certificate hex string. */
+  pid6IntIfAny: number | null;
+  pid6LooksLikeItemCertificateHex: boolean;
+  /** Phase derived only from pid 7 + name (same rules as normalizeInventory). */
+  phaseFromSteamPaintIndex: string | null;
+  usedInlineDescriptionProperties: boolean;
+};
+
+export type SteamTradeFloatAuditReport = {
+  total: number;
+  /**
+   * Float только из trade XHR: `rgAssetProperties[assetId]` → `propertyid === 2` → `float_value`.
+   */
+  withFloatSteam: number;
+  /** total − withFloatSteam (строго по полю rgAssetProperties). */
+  withoutFloat: number;
+  /**
+   * После полного merge (`asset_properties[]` + rg + `descriptions[].properties`) — как в `normalizeInventory`.
+   * Если здесь есть float, CSFloat для износа не нужен.
+   */
+  withFloatMergedSources: number;
+  withoutFloatMergedSources: number;
+  /** Сколько строк имеют pid 7 (Finish Catalog) в объединённых property rows. */
+  withPaintIndexPid7: number;
+  dopplerFamilyItemCount: number;
+  /** Фаза Doppler по paint index с pid 7 (без CSFloat). */
+  dopplerWithPhaseFromPid7: number;
+  /** Редкий кейс: pid 6 с int_value; пробуем phaseFromPaintIndex если pid 7 отсутствует. */
+  dopplerWithPhaseFromPid6IntHint: number;
+  pid6ItemCertificateHexCount: number;
+  pid6IntValueCount: number;
+  samplesWithoutFloat: SteamTradeFloatAuditSample[];
+  notes: string[];
+};
+
+function buildDescMapFromSteamRaw(raw: any): Map<string, any> {
+  const descMap = new Map<string, any>();
+  let descriptions: any[] = [];
+  if (Array.isArray(raw?.assets)) {
+    descriptions = raw.descriptions ?? [];
+  } else if (raw?.rgInventory && raw?.rgDescriptions) {
+    descriptions = Object.values(raw.rgDescriptions);
+  }
+  for (const d of descriptions) {
+    if (!d || typeof d !== "object") continue;
+    const dr = d as Record<string, unknown>;
+    const cid = rawClassId(dr);
+    const iid = rawInstanceId(dr);
+    if (cid === undefined || cid === null || String(cid).trim() === "") continue;
+    const key = steamClassInstanceKey(cid, iid);
+    if (!descMap.has(key)) descMap.set(key, d);
+  }
+  return descMap;
+}
+
+function scanPid6Diagnostics(rows: Array<Record<string, unknown>>): {
+  hexCert: boolean;
+  intVal: number | null;
+} {
+  let hexCert = false;
+  let intVal: number | null = null;
+  for (const p of rows) {
+    const pid = Number(p.propertyid);
+    if (pid !== 6) continue;
+    if (typeof p.string_value === "string") {
+      const s = p.string_value.trim();
+      if (/^[0-9A-F]{24,}$/i.test(s)) hexCert = true;
+    }
+    if (p.int_value != null) {
+      const n = parseInt(String(p.int_value), 10);
+      if (!Number.isNaN(n)) intVal = n;
+    }
+  }
+  return { hexCert, intVal };
+}
+
+function mergedPropRowsForAssetDesc(
+  assetPropsMap: Map<string, Array<Record<string, unknown>>>,
+  descMap: Map<string, any>,
+  assetId: string,
+  classId: string,
+  instanceId: string,
+): {
+  merged: Array<Record<string, unknown>>;
+  desc: Record<string, unknown> | null;
+  usedInlineDescriptionProperties: boolean;
+} {
+  const iid = instanceId?.trim() !== "" ? instanceId : "0";
+  let desc = descMap.get(steamClassInstanceKey(classId, iid));
+  if (!desc) desc = descMap.get(steamClassInstanceKey(classId, "0"));
+  const descRec =
+    desc && typeof desc === "object" ? (desc as Record<string, unknown>) : null;
+  const inline = descRec && Array.isArray(descRec.properties)
+    ? (descRec.properties as Array<Record<string, unknown>>)
+    : [];
+  const merged = [...(assetPropsMap.get(String(assetId).trim()) ?? []), ...inline];
+  return {
+    merged,
+    desc: descRec,
+    usedInlineDescriptionProperties: inline.length > 0,
+  };
+}
+
+/**
+ * Отчёт по сырому JSON инвентаря (partnerinventory / merge).
+ *
+ * Основные поля: `total`, `withFloatSteam` (только `rgAssetProperties[assetId]` → pid 2),
+ * `withoutFloat` (= total − withFloatSteam).
+ *
+ * Дополнительно: `withFloatMergedSources` — как после `normalizeInventory` (rg + `asset_properties[]` + `descriptions[].properties`);
+ * если float есть там, к CSFloat за износом можно не ходить.
+ *
+ * Фаза Doppler без CSFloat: `dopplerWithPhaseFromPid7` (pid 7 Finish Catalog); редко `dopplerWithPhaseFromPid6IntHint` (int на pid 6).
+ *
+ * CLI: `AUDIT_TRADE_INV_JSON=./snap.json npm run audit:trade-float`
+ */
+export function auditSteamInventoryFloatCoverage(
+  raw: unknown,
+  ownerSteamId64?: string,
+): SteamTradeFloatAuditReport {
+  const notes: string[] = [];
+  const samples: SteamTradeFloatAuditSample[] = [];
+  const SAMPLE_CAP = 20;
+
+  if (!raw || typeof raw !== "object") {
+    return {
+      total: 0,
+      withFloatSteam: 0,
+      withoutFloat: 0,
+      withFloatMergedSources: 0,
+      withoutFloatMergedSources: 0,
+      withPaintIndexPid7: 0,
+      dopplerFamilyItemCount: 0,
+      dopplerWithPhaseFromPid7: 0,
+      dopplerWithPhaseFromPid6IntHint: 0,
+      pid6ItemCertificateHexCount: 0,
+      pid6IntValueCount: 0,
+      samplesWithoutFloat: [],
+      notes: ["invalid raw"],
+    };
+  }
+
+  const rawAny = raw as Record<string, unknown>;
+  if (rawAny.rgAssetProperties != null && typeof rawAny.rgAssetProperties === "object") {
+    notes.push("includes rgAssetProperties (trade / economy_trade shape)");
+  }
+  if (Array.isArray(rawAny.asset_properties) && rawAny.asset_properties.length > 0) {
+    notes.push("includes asset_properties[] (community inventory shape)");
+  }
+
+  const items = normalizeInventory(rawAny as any, ownerSteamId64, undefined);
+  const assetPropsMap = buildAssetPropsMapFromSteamRaw(rawAny);
+  const descMap = buildDescMapFromSteamRaw(rawAny);
+
+  let withFloatSteam = 0;
+  let withFloatMergedSources = 0;
+  let withPaintIndexPid7 = 0;
+  let dopplerFamilyItemCount = 0;
+  let dopplerWithPhaseFromPid7 = 0;
+  let dopplerWithPhaseFromPid6IntHint = 0;
+  let pid6ItemCertificateHexCount = 0;
+  let pid6IntValueCount = 0;
+
+  for (const it of items) {
+    const rgRows = getRgAssetPropertyRows(rawAny, it.assetId);
+    const floatRg = extractFloatFromPropertyRows(rgRows);
+    if (floatRg != null) {
+      withFloatSteam++;
+    }
+
+    const { merged, desc: _desc, usedInlineDescriptionProperties } = mergedPropRowsForAssetDesc(
+      assetPropsMap,
+      descMap,
+      it.assetId,
+      it.classId,
+      it.instanceId,
+    );
+    const ex = extractFromAssetProperties(merged);
+    const hints = scanPid6Diagnostics(merged);
+    const paintPhasePid7 = phaseFromPaintIndex(ex.paintIndex, it.marketHashName);
+    const pid6Int = extractPid6IntIfAny(merged);
+    const paintPhasePid6Hint =
+      paintPhasePid7 == null && pid6Int != null
+        ? phaseFromPaintIndex(pid6Int, it.marketHashName)
+        : null;
+
+    if (ex.paintIndex != null && !Number.isNaN(ex.paintIndex)) {
+      withPaintIndexPid7++;
+    }
+
+    if (hints.hexCert) pid6ItemCertificateHexCount++;
+    if (hints.intVal != null) pid6IntValueCount++;
+
+    if (isDopplerFamilySkin(it.marketHashName)) {
+      dopplerFamilyItemCount++;
+      if (paintPhasePid7 != null) dopplerWithPhaseFromPid7++;
+      else if (paintPhasePid6Hint != null) dopplerWithPhaseFromPid6IntHint++;
+    }
+
+    const f = it.floatValue;
+    if (f != null && f > 0) {
+      withFloatMergedSources++;
+    } else {
+      if (samples.length < SAMPLE_CAP) {
+        samples.push({
+          assetId: it.assetId,
+          marketHashName: it.marketHashName,
+          floatFromSteam: ex.floatValue != null && ex.floatValue > 0 ? ex.floatValue : null,
+          paintIndexFromPid7: ex.paintIndex,
+          pid6IntIfAny: hints.intVal,
+          pid6LooksLikeItemCertificateHex: hints.hexCert,
+          phaseFromSteamPaintIndex: paintPhasePid7 ?? paintPhasePid6Hint,
+          usedInlineDescriptionProperties,
+        });
+      }
+    }
+  }
+
+  const total = items.length;
+  return {
+    total,
+    withFloatSteam,
+    withoutFloat: total - withFloatSteam,
+    withFloatMergedSources,
+    withoutFloatMergedSources: total - withFloatMergedSources,
+    withPaintIndexPid7,
+    dopplerFamilyItemCount,
+    dopplerWithPhaseFromPid7,
+    dopplerWithPhaseFromPid6IntHint,
+    pid6ItemCertificateHexCount,
+    pid6IntValueCount,
+    samplesWithoutFloat: samples,
+    notes,
+  };
 }
 
 // ---------------------------------------------------------------------------

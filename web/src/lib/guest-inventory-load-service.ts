@@ -431,23 +431,25 @@ async function runGuestInventoryRemoteWorkerLoad(
     totalItems: merged.length,
     apiItemCount: 0,
     newWithoutApi: cs.newWithoutApi,
-    csfloatSent: cs.sentToCsfloat,
-    csfloatCacheHits: cs.cacheHits,
-    csfloatEnriched: cs.enriched,
-    durationMs: Date.now() - pipelineT0,
-  });
-  console.log(
-    JSON.stringify({
-      type: "guest_inv_task",
-      status: "done",
-      snapshotSteamId,
-      primarySource: "remote_worker",
-      totalItems: merged.length,
-      newWithoutApi: cs.newWithoutApi,
       csfloatSent: cs.sentToCsfloat,
+      csfloatLocalHex: cs.localHexDecode,
+      csfloatCacheHits: cs.cacheHits,
+      csfloatEnriched: cs.enriched,
       durationMs: Date.now() - pipelineT0,
-    }),
-  );
+    });
+    console.log(
+      JSON.stringify({
+        type: "guest_inv_task",
+        status: "done",
+        snapshotSteamId,
+        primarySource: "remote_worker",
+        totalItems: merged.length,
+        newWithoutApi: cs.newWithoutApi,
+        csfloatSent: cs.sentToCsfloat,
+        csfloatLocalHex: cs.localHexDecode,
+        durationMs: Date.now() - pipelineT0,
+      }),
+    );
 
   await setCache(snapshotSteamId, merged);
   if (!skipUserRefreshMark) {
@@ -608,6 +610,7 @@ async function runGuestInventoryLoad(
       apiItemCount: apiItems.length,
       newWithoutApi: cs.newWithoutApi,
       csfloatSent: cs.sentToCsfloat,
+      csfloatLocalHex: cs.localHexDecode,
       csfloatCacheHits: cs.cacheHits,
       csfloatEnriched: cs.enriched,
       durationMs: Date.now() - pipelineT0,
@@ -621,6 +624,7 @@ async function runGuestInventoryLoad(
         totalItems: merged.length,
         newWithoutApi: cs.newWithoutApi,
         csfloatSent: cs.sentToCsfloat,
+        csfloatLocalHex: cs.localHexDecode,
         durationMs: Date.now() - pipelineT0,
       }),
     );

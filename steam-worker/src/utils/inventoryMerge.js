@@ -28,7 +28,15 @@ export function mergeCommunityInventoryJson(chunks) {
       }
     }
 
-    if (Array.isArray(j.asset_properties)) allAssetProps.push(...j.asset_properties);
+    if (Array.isArray(j.asset_properties)) {
+      allAssetProps.push(...j.asset_properties);
+    } else if (j.rgAssetProperties != null && typeof j.rgAssetProperties === "object" && !Array.isArray(j.rgAssetProperties)) {
+      for (const [assetid, rows] of Object.entries(j.rgAssetProperties)) {
+        if (Array.isArray(rows)) {
+          allAssetProps.push({ assetid, asset_properties: rows });
+        }
+      }
+    }
 
     if (Array.isArray(j.descriptions)) {
       for (const d of j.descriptions) {
