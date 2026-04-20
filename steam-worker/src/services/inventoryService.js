@@ -1,6 +1,9 @@
 import { fetchTradeInventory } from "../puppeteer/fetchTradeInventory.js";
 import { fetchCommunityInventoryPaginated } from "../utils/fetchCommunityInventoryPaginated.js";
-import { buildWorkerTradeItemLists } from "../utils/inventoryWorkerItemLists.js";
+import {
+  buildWorkerTradeInventoryItems,
+  filterTradableMergedRaw,
+} from "../utils/inventoryWorkerItemLists.js";
 import { buildInventoryMetaV1 } from "../utils/inventoryResponseMeta.js";
 import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson, logInventoryEvent } from "../utils/logger.js";
@@ -164,21 +167,18 @@ export function createInventoryHandler(pool, taskQueue, cache) {
                 tradeOutcome: { ok: true },
               });
         const meta = { ...baseMeta, cacheHit: true, schemaVersion: baseMeta.schemaVersion ?? 1 };
-        /** Всегда пересчитываем списки из `raw`: в кэше могли лежать пустые `mainItems`/`itemsFromTradeLock` ([] !== null). */
-        const lists =
-          cached.raw && typeof cached.raw === "object"
-            ? buildWorkerTradeItemLists(cached.raw)
-            : cached.mainItems != null && cached.itemsFromTradeLock != null
-              ? { items: cached.items, mainItems: cached.mainItems, itemsFromTradeLock: cached.itemsFromTradeLock }
-              : { items: cached.items, mainItems: cached.items, itemsFromTradeLock: [] };
+        const rawFiltered =
+          cached.raw && typeof cached.raw === "object" ? filterTradableMergedRaw(cached.raw) : cached.raw;
+        const { items } =
+          rawFiltered && typeof rawFiltered === "object"
+            ? buildWorkerTradeInventoryItems(rawFiltered)
+            : { items: cached.items ?? [] };
         return {
           ok: true,
           status: 200,
           body: {
-            items: lists.items,
-            mainItems: lists.mainItems,
-            itemsFromTradeLock: lists.itemsFromTradeLock,
-            raw: cached.raw,
+            items,
+            raw: rawFiltered,
             source: "trade",
             accountId: cached.accountId ?? "cache",
             durationMs: 0,
@@ -298,8 +298,6 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       });
       const body = {
         items: outcome.items,
-        mainItems: outcome.mainItems ?? outcome.items,
-        itemsFromTradeLock: outcome.itemsFromTradeLock ?? [],
         raw: outcome.raw ?? null,
         source: "trade",
         accountId: outcome.accountId,
@@ -309,8 +307,6 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       };
       cache.set(canonical, {
         items: outcome.items,
-        mainItems: outcome.mainItems,
-        itemsFromTradeLock: outcome.itemsFromTradeLock,
         accountId: outcome.accountId,
         meta,
         raw: outcome.raw ?? null,
@@ -350,8 +346,6 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       status,
         body: {
           items: outcome.items ?? [],
-          mainItems: outcome.mainItems ?? outcome.items ?? [],
-          itemsFromTradeLock: outcome.itemsFromTradeLock ?? [],
           raw: outcome.raw ?? null,
           source: "trade",
           accountId: outcome.accountId ?? null,

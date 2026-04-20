@@ -22,10 +22,6 @@ export type SteamWorkerInventoryMeta = {
 
 export type SteamWorkerInventoryBody = {
   items: unknown[];
-  /** Tradable rows (Steam `tradable` truthy); same shape as `items` entries. */
-  mainItems?: unknown[];
-  /** Trade-locked / untradable rows still present in partnerinventory XHR merge. */
-  itemsFromTradeLock?: unknown[];
   /** Merged Steam inventory JSON (assets + descriptions + asset_properties) for web-side `normalizeInventory`. */
   raw?: unknown;
   source: string | null;

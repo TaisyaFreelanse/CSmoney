@@ -4,7 +4,10 @@ import {
   isUsableInventoryJson,
   inventoryHasMoreItems,
 } from "../utils/inventoryMerge.js";
-import { buildWorkerTradeItemLists } from "../utils/inventoryWorkerItemLists.js";
+import {
+  buildWorkerTradeInventoryItems,
+  filterTradableMergedRaw,
+} from "../utils/inventoryWorkerItemLists.js";
 import { normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson } from "../utils/logger.js";
 import { runWithTimeout } from "../utils/runWithTimeout.js";
@@ -509,7 +512,8 @@ export async function fetchTradeInventory(opts) {
 
       if (prefetchAssetCountEarly > 0 && alive.tradeSurfacePresent) {
         const mergedPartial = mergeCommunityInventoryJson([...prefetchedInventoryChunks]);
-        const partialLists = buildWorkerTradeItemLists(mergedPartial);
+        const mergedPartialOut = filterTradableMergedRaw(mergedPartial);
+        const { items: partialItems } = buildWorkerTradeInventoryItems(mergedPartialOut);
         logJson("steam_worker_inventory_incomplete_no_trade_xhr", {
           accountId,
           prefetchAssets: prefetchAssetCountEarly,
@@ -521,10 +525,8 @@ export async function fetchTradeInventory(opts) {
           ok: false,
           error: "inventory_incomplete_no_trade_xhr",
           detail: "api_incomplete_or_partnerinventory_xhr_missing",
-          items: partialLists.items,
-          mainItems: partialLists.mainItems,
-          itemsFromTradeLock: partialLists.itemsFromTradeLock,
-          raw: mergedPartial,
+          items: partialItems,
+          raw: mergedPartialOut,
           sessionInvalid: false,
           timedOut: true,
         };
@@ -572,7 +574,8 @@ export async function fetchTradeInventory(opts) {
     await Promise.allSettled(jsonBodyTasks);
 
     const merged = mergeCommunityInventoryJson([...prefetchedInventoryChunks, ...jsonChunks]);
-    const { items, mainItems, itemsFromTradeLock } = buildWorkerTradeItemLists(merged);
+    const mergedOut = filterTradableMergedRaw(merged);
+    const { items } = buildWorkerTradeInventoryItems(mergedOut);
 
     logJson("steam_worker_inventory_ok", {
       accountId,
@@ -587,9 +590,7 @@ export async function fetchTradeInventory(opts) {
       ok: true,
       error: null,
       items,
-      mainItems,
-      itemsFromTradeLock,
-      raw: merged,
+      raw: mergedOut,
       sessionInvalid: false,
       timedOut: false,
     };

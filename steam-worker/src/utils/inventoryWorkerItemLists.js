@@ -1,5 +1,5 @@
 /**
- * Split merged trade / API inventory into tradable vs trade-locked rows for GET /inventory.
+ * Merged trade / API inventory: фильтр трейдлока в raw и сборка `items` для GET /inventory.
  * Float: Steam `propertyid` 2, else decode from Item Certificate hex (`propertyid` 6) via @csfloat/cs2-inspect-serializer.
  */
 import { decodeLink } from "@csfloat/cs2-inspect-serializer";
@@ -89,6 +89,84 @@ function steamClassInstanceKey(classid, instanceid) {
   return `${c}_${i}`;
 }
 
+/**
+ * Трейдлок: не tradable по описанию Steam, явный `asset.tradable === 0`, или будущая дата в тексте описаний.
+ * @param {unknown} desc
+ * @param {unknown} asset
+ */
+export function assetInTradeHold(desc, asset) {
+  const a = asset && typeof asset === "object" ? asset : null;
+  if (a && (a.tradable === 0 || a.tradable === false)) return true;
+  const steamTradable = desc?.tradable === 1 || desc?.tradable === true;
+  const tradeLockUntilIso = detectTradeLockUntilIso(desc?.descriptions);
+  const hasFutureLock =
+    tradeLockUntilIso != null &&
+    !Number.isNaN(new Date(tradeLockUntilIso).getTime()) &&
+    new Date(tradeLockUntilIso).getTime() > Date.now();
+  return !steamTradable || hasFutureLock;
+}
+
+/**
+ * Убирает из merged raw все asset'ы в трейдлоке и подчищает `asset_properties` / `rgAssetProperties`.
+ * @param {unknown} merged
+ */
+export function filterTradableMergedRaw(merged) {
+  if (!merged || typeof merged !== "object") return merged;
+
+  const m = merged;
+  const descByKey = new Map();
+  for (const d of m.descriptions ?? []) {
+    if (!d || typeof d !== "object") continue;
+    const dr = d;
+    const k = steamClassInstanceKey(dr.classid ?? dr.classId, dr.instanceid ?? dr.instanceId ?? "0");
+    if (!descByKey.has(k)) descByKey.set(k, d);
+  }
+
+  function descForAsset(a) {
+    const cid = String(a.classid ?? "");
+    const iid = String(a.instanceid ?? "0");
+    const dk = steamClassInstanceKey(cid, iid);
+    return descByKey.get(dk) ?? descByKey.get(steamClassInstanceKey(cid, "0"));
+  }
+
+  const keptAssets = [];
+  const keptIds = new Set();
+  for (const a of Array.isArray(m.assets) ? m.assets : []) {
+    if (!a || typeof a !== "object") continue;
+    const desc = descForAsset(a);
+    if (assetInTradeHold(desc, a)) continue;
+    keptAssets.push(a);
+    const id = String(a.assetid ?? a.id ?? "").trim();
+    if (id) keptIds.add(id);
+  }
+
+  const ap = m.asset_properties;
+  const filteredAp = Array.isArray(ap)
+    ? ap.filter((block) => {
+        if (!block || typeof block !== "object") return false;
+        const id = String(block.assetid ?? "").trim();
+        return id && keptIds.has(id);
+      })
+    : [];
+
+  /** @type {Record<string, unknown[]>} */
+  const filteredRg = {};
+  const rg = m.rgAssetProperties;
+  if (rg != null && typeof rg === "object" && !Array.isArray(rg)) {
+    for (const [assetid, rows] of Object.entries(rg)) {
+      const id = String(assetid).trim();
+      if (id && keptIds.has(id) && Array.isArray(rows)) filteredRg[id] = rows;
+    }
+  }
+
+  const out = { ...m, assets: keptAssets, asset_properties: filteredAp };
+  if (m.rgAssetProperties != null && typeof m.rgAssetProperties === "object" && !Array.isArray(m.rgAssetProperties)) {
+    if (Object.keys(filteredRg).length > 0) out.rgAssetProperties = filteredRg;
+    else delete out.rgAssetProperties;
+  }
+  return out;
+}
+
 function floatFromItemCertificateHex(hex) {
   if (!hex || typeof hex !== "string") return null;
   const h = hex.trim();
@@ -105,13 +183,13 @@ function floatFromItemCertificateHex(hex) {
 }
 
 /**
+ * Список предметов для API: только реально tradable строки (после merge; при необходимости сначала вызовите `filterTradableMergedRaw`).
  * @param {unknown} merged
  */
-export function buildWorkerTradeItemLists(merged) {
-  const mainItems = [];
-  const itemsFromTradeLock = [];
+export function buildWorkerTradeInventoryItems(merged) {
+  const items = [];
   if (!merged || typeof merged !== "object") {
-    return { items: [], mainItems, itemsFromTradeLock };
+    return { items };
   }
 
   const m = merged;
@@ -138,12 +216,7 @@ export function buildWorkerTradeItemLists(merged) {
     const name = desc?.market_hash_name ?? desc?.name ?? "";
     const steamTradable = desc?.tradable === 1 || desc?.tradable === true;
     const tradeLockUntilIso = detectTradeLockUntilIso(desc?.descriptions);
-    const hasFutureLock =
-      tradeLockUntilIso != null &&
-      !Number.isNaN(new Date(tradeLockUntilIso).getTime()) &&
-      new Date(tradeLockUntilIso).getTime() > Date.now();
-    /** В `itemsFromTradeLock` — как в trade UI: не tradable у Steam ИЛИ будущий unlock из текста. */
-    const inTradeHold = !steamTradable || hasFutureLock;
+    const inTradeHold = assetInTradeHold(desc, a);
 
     const rows = assetPropsMap.get(assetid) ?? [];
     const floatPid2 = extractFloatFromPropertyRows(rows);
@@ -191,10 +264,8 @@ export function buildWorkerTradeItemLists(merged) {
       inspectHex,
     };
 
-    if (inTradeHold) itemsFromTradeLock.push(row);
-    else mainItems.push(row);
+    if (!inTradeHold) items.push(row);
   }
 
-  const items = [...mainItems, ...itemsFromTradeLock];
-  return { items, mainItems, itemsFromTradeLock };
+  return { items };
 }
