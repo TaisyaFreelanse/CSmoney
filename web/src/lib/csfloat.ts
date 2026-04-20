@@ -323,6 +323,8 @@ export type CsFloatEnrichLog = {
   totalItems: number;
   newWithoutApi: number;
   sentToCsfloat: number;
+  /** Items enriched from local hex / certificate decode without CSFloat HTTP (reserved; 0 until wired). */
+  localHexDecode: number;
   cacheHits: number;
   enriched: number;
   failed: number;
@@ -347,6 +349,7 @@ export async function enrichNewItemsWithCsFloat(
       totalItems: items.length,
       newWithoutApi: 0,
       sentToCsfloat: 0,
+      localHexDecode: 0,
       cacheHits: 0,
       enriched: 0,
       failed: 0,
@@ -430,6 +433,7 @@ export async function enrichNewItemsWithCsFloat(
     totalItems: items.length,
     newWithoutApi,
     sentToCsfloat,
+    localHexDecode: 0,
     cacheHits,
     enriched,
     failed,
