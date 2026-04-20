@@ -265,6 +265,28 @@ describe("steamClassInstanceKey + normalizeInventory join", () => {
     expect(items[0].marketHashName).toContain("M9 Bayonet");
     expect(items[0].tradable).toBe(false);
   });
+
+  it("prefers icon_url_large over icon_url for economy CDN path", () => {
+    const raw = {
+      assets: [{ assetid: "1", classid: "10", instanceid: "20", amount: "1" }],
+      descriptions: [
+        {
+          classid: "10",
+          instanceid: "20",
+          market_hash_name: "X",
+          name: "X",
+          icon_url: "smallhash",
+          icon_url_large: "largehash",
+          tradable: 1,
+          marketable: 1,
+          tags: [],
+        },
+      ],
+    };
+    const [item] = normalizeInventory(raw);
+    expect(item.iconUrl).toContain("largehash");
+    expect(item.iconUrl).not.toContain("smallhash");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -667,6 +667,21 @@ export type NormalizeInventoryOptions = {
   ownerDescriptionsTradeLock?: boolean;
 };
 
+/** Prefer `icon_url_large` when Steam sends it (sharper catalog art; still not per-seed 3D). */
+function economyImageUrlFromSteamDesc(desc: Record<string, unknown>): string {
+  const large = desc.icon_url_large;
+  const small = desc.icon_url;
+  const rel =
+    typeof large === "string" && large.trim() !== ""
+      ? large.trim()
+      : typeof small === "string" && small.trim() !== ""
+        ? small.trim()
+        : "";
+  if (!rel) return "";
+  if (/^https?:\/\//i.test(rel)) return rel;
+  return `${STEAM_CDN}${rel}`;
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export function normalizeInventory(
   raw: any,
@@ -743,9 +758,9 @@ export function normalizeInventory(
 
     if (!desc) continue;
 
-    const icon = desc.icon_url ? `${STEAM_CDN}${desc.icon_url}` : "";
-    const { rarity, rarityColor } = rarityFromTags(desc.tags);
     const descRec = desc as Record<string, unknown>;
+    const icon = economyImageUrlFromSteamDesc(descRec);
+    const { rarity, rarityColor } = rarityFromTags(desc.tags);
     const fromOwner =
       options?.ownerDescriptionsTradeLock === true ? tradeLockFromOwnerDescriptions(descRec) : null;
     const tradeLockUntil = fromOwner ?? detectTradeLock(desc.descriptions);

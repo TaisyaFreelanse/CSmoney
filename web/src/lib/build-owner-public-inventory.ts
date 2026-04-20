@@ -11,6 +11,7 @@ import {
   splitOwnerSteamSelectableAndTradeLockedForStore,
   type OwnerPublicInventoryRow,
 } from "@/lib/owner-manual-trade-lock";
+import { filterOwnerStorePublicRows } from "@/lib/owner-store-visibility";
 import { fetchOwnerInventory, type NormalizedItem } from "@/lib/steam-inventory";
 
 export type BuildOwnerPublicInventoryResult =
@@ -45,8 +46,10 @@ export async function buildOwnerPublicInventoryItems(): Promise<BuildOwnerPublic
   const { selectable, steamTradeLocked } = splitOwnerSteamSelectableAndTradeLockedForStore(items);
   const manualLock = await getOwnerManualLockDisplayItems();
   const merged = mergeOwnerSteamAndManualLockJson(selectable, steamTradeLocked, manualLock);
+  const mergedForStore = filterOwnerStorePublicRows(merged);
   invCacheLog(
-    `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLocked=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length}`,
+    `owner-public-merge steamId=${ownerSteamId} selectable=${selectable.length} steamTradeLocked=${steamTradeLocked.length} manualLock=${manualLock.length} mergedTotal=${merged.length} storeAfterFilter=${mergedForStore.length}`,
   );
-  return { ok: true, items: merged, manualLockCount: manualLock.length, steamCacheWasStale };
+  const manualLockCount = mergedForStore.filter((i) => i.locked === true).length;
+  return { ok: true, items: mergedForStore, manualLockCount, steamCacheWasStale };
 }
