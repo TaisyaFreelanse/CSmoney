@@ -10,6 +10,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "login": "node scripts/login.mjs",
+    "login:vps": "bash scripts/login-vps.sh",
     "audit:trade-floats": "node scripts/audit-trade-float-batch.mjs"
   },
   "dependencies": {

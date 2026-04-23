@@ -80,12 +80,24 @@ async function main() {
     }),
   );
 
-  const browser = await pp.launch({
-    headless,
-    userDataDir,
-    ...(executablePath ? { executablePath } : {}),
-    args: puppeteerChromeArgs(["--disable-dev-shm-usage"]),
-  });
+  let browser;
+  try {
+    browser = await pp.launch({
+      headless,
+      userDataDir,
+      ...(executablePath ? { executablePath } : {}),
+      args: puppeteerChromeArgs(["--disable-dev-shm-usage"]),
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/Missing X server|X server/i.test(msg) && !headless) {
+      console.error(
+        "\n[steam-worker login] Headful Chrome needs a working DISPLAY (e.g. terminal inside VNC, run: echo $DISPLAY).\n" +
+          "From SSH without X: npm run login:vps -- acc1   OR   STEAM_WORKER_HEADLESS=1 npm run login -- acc1\n",
+      );
+    }
+    throw e;
+  }
 
   const page = await browser.newPage();
   await authenticatePuppeteerProxy(page, proxySessionKey);
