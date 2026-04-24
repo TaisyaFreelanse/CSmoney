@@ -40,6 +40,16 @@ export function puppeteerChromeArgs(extra = []) {
   const args = ["--no-sandbox", "--disable-setuid-sandbox", ...extra];
   const host = process.env.PROXY_HOST?.trim();
   const port = process.env.PROXY_PORT?.trim();
+  const hostOnly = !!host && !port;
+  const portOnly = !host && !!port;
+  if (hostOnly || portOnly) {
+    logJson("steam_worker_proxy_misconfig", {
+      phase: "chrome_args",
+      hint: "set both PROXY_HOST and PROXY_PORT or leave both empty for direct egress",
+      hasHost: !!host,
+      hasPort: !!port,
+    });
+  }
   if (host && port) {
     args.push(`--proxy-server=http://${host}:${port}`);
     // Bright Data / TLS-inspecting proxies: Chromium otherwise fails with ERR_CERT_AUTHORITY_INVALID
@@ -56,6 +66,15 @@ export function puppeteerChromeArgs(extra = []) {
  */
 export async function verifyBrightDataProxyIp(page, accountId) {
   const host = process.env.PROXY_HOST?.trim();
+  const port = process.env.PROXY_PORT?.trim();
+  if (process.env.STEAM_WORKER_VERIFY_PROXY_IP === "1" && (!host || !port)) {
+    logJson("steam_worker_proxy_ip_verify", {
+      accountId,
+      skipped: true,
+      reason: "PROXY_HOST/PROXY_PORT not both set (direct mode or misconfig)",
+    });
+    return;
+  }
   if (!host || process.env.STEAM_WORKER_VERIFY_PROXY_IP !== "1") return;
   const verifyUrl =
     process.env.STEAM_WORKER_PROXY_VERIFY_URL?.trim() || "https://geo.brdtest.com/mygeo.json";

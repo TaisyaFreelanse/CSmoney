@@ -11,7 +11,8 @@
     "dev": "node --watch server.js",
     "login": "node scripts/login.mjs",
     "login:vps": "bash scripts/login-vps.sh",
-    "audit:trade-floats": "node scripts/audit-trade-float-batch.mjs"
+    "audit:trade-floats": "node scripts/audit-trade-float-batch.mjs",
+    "diagnose:inventory-proxy": "node scripts/diagnose-inventory-proxy.mjs"
   },
   "dependencies": {
     "@csfloat/cs2-inspect-serializer": "^1.1.6",
