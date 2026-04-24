@@ -52,7 +52,7 @@ function proxySummary() {
   const partial =
     (!!host !== !!port) || (host && port && (!user || pass == null || pass === ""));
   return {
-    PROXY_HOST: host ? `set (${host.length} chars)` : "(empty)",
+    PROXY_HOST: host ? "set" : "(empty)",
     PROXY_PORT: port || "(empty)",
     PROXY_USERNAME: user ? `set ${mask(user)}` : "(empty)",
     PROXY_PASSWORD: pass != null && pass !== "" ? "set" : "(empty)",
