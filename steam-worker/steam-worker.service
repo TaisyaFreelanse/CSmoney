@@ -1,0 +1,17 @@
+[Unit]
+Description=CSmoney steam-worker (Steam inventory / Puppeteer)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/CSmoney/steam-worker
+EnvironmentFile=-/root/CSmoney/steam-worker/.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+# Large merges / Puppeteer
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target

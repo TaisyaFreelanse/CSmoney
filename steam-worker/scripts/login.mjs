@@ -92,8 +92,9 @@ async function main() {
     const msg = e instanceof Error ? e.message : String(e);
     if (/Missing X server|X server/i.test(msg) && !headless) {
       console.error(
-        "\n[steam-worker login] Headful Chrome needs a working DISPLAY (e.g. terminal inside VNC, run: echo $DISPLAY).\n" +
-          "From SSH without X: npm run login:vps -- acc1   OR   STEAM_WORKER_HEADLESS=1 npm run login -- acc1\n",
+        "\n[steam-worker login] Headful Chrome needs X11: DISPLAY + cookie file (export XAUTHORITY=~/.Xauthority if missing).\n" +
+          "Open Terminal inside the VNC desktop (same user as the desktop session), then: npm run login:vps -- acc1\n" +
+          "Or use headless / copy profile from PC: STEAM_WORKER_HEADLESS=1 npm run login -- acc1\n",
       );
     }
     throw e;
