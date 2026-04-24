@@ -7,6 +7,7 @@ import {
 import { buildInventoryMetaV1 } from "../utils/inventoryResponseMeta.js";
 import { parseTradeUrl, tradeUrlFromParsed, steamId64FromPartner, normalizeSteamId64 } from "../utils/steamUrl.js";
 import { logJson, logInventoryEvent } from "../utils/logger.js";
+import { notifySteamAccountIssue, recordTradeFetchOutcome } from "../utils/telegramNotifier.js";
 import { InventoryCache } from "./inventoryCache.js";
 
 const TASK_TIMEOUT_MS = Math.min(
@@ -68,7 +69,17 @@ export function createInventoryHandler(pool, taskQueue, cache) {
     });
     if (r.sessionInvalid) {
       pool.markSessionInvalid(account.id, r.detail || "session");
+      void notifySteamAccountIssue({
+        accountId: account.id,
+        error: "session_invalid",
+        detail: r.detail || "steam_worker_account_invalidated",
+      });
     }
+    recordTradeFetchOutcome(account.id, {
+      ok: !!r.ok,
+      error: r.error ?? null,
+      sessionInvalid: !!r.sessionInvalid,
+    });
     const apiMetaForResponse = apiPull.ok
       ? { attempted: true, ok: true, ...apiPull.meta }
       : { attempted: true, ok: false, error: apiPull.error };
