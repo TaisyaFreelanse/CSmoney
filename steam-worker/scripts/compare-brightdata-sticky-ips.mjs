@@ -80,14 +80,22 @@ function curlProxy({ host, port, proxyUser, password, url }) {
   return { ok: true, text: r.stdout || "", stderr: "" };
 }
 
+/** Egress IP from Bright Data proxy CONNECT response (not examples like 1.1.1.1 in welcome body). */
+function extractProxyEgressIp(text) {
+  const m =
+    text.match(/x-brd-ip:\s*([\d.]+)/i) ||
+    text.match(/x-luminati-ip:\s*([\d.]+)/i);
+  return m ? m[1].trim() : null;
+}
+
 function parseResponse(text) {
   const norm = text.replace(/\r\n/g, "\n");
   const idx = norm.indexOf("\n\n");
   const head = idx >= 0 ? norm.slice(0, idx) : norm;
   const body = idx >= 0 ? norm.slice(idx + 2).trim() : "";
   const first = head.split("\n")[0] || "";
-  const ip = body.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
-  return { firstLine: first, head: head.split("\n").slice(0, 15).join("\n"), body: body.slice(0, 400), ip: ip ? ip[0] : null };
+  const ip = extractProxyEgressIp(head) || extractProxyEgressIp(norm.slice(0, 2500));
+  return { firstLine: first, head: head.split("\n").slice(0, 18).join("\n"), body: body.slice(0, 400), ip };
 }
 
 const env = loadEnvFile(path.join(root, ".env"));
@@ -165,10 +173,19 @@ for (const accId of accIds) {
   results.push({ accId, ip: p.ip, fail: false });
 }
 
-console.log("\n=== Summary ===");
-console.log("baseline (.env user):", baseRes.ok ? parseResponse(baseRes.text).ip ?? "(no ip)" : "failed");
+const baseIp = baseRes.ok ? parseResponse(baseRes.text).ip : null;
+console.log("\n=== Summary (x-brd-ip / x-luminati-ip from proxy response) ===");
+console.log("baseline (.env user):", baseRes.ok ? baseIp ?? "(no ip)" : "failed");
 for (const r of results) {
   console.log(`${r.accId} (-session-):`, r.fail ? "failed" : r.ip ?? "(no ip)");
+}
+
+if (baseRes.ok && results.every((r) => !r.fail) && baseIp) {
+  const stickyIps = results.map((r) => r.ip).filter(Boolean);
+  const all = [baseIp, ...stickyIps];
+  if (new Set(all).size >= 2) {
+    console.log("\n→ Разные egress IP между baseline и/или аккаунтами — sticky и прокси работают.");
+  }
 }
 
 if (baseRes.ok && results.some((r) => r.fail)) {
@@ -181,8 +198,6 @@ if (baseRes.ok && results.some((r) => r.fail)) {
 } else if (baseRes.ok && results.every((r) => !r.fail)) {
   const ips = results.map((r) => r.ip).filter(Boolean);
   if (ips.length >= 2 && new Set(ips).size === 1) {
-    console.log("\n→ Один и тот же IP на обоих sticky — ожидайте различия только если зона выдаёт разные выходы по session-id.");
-  } else if (ips.length >= 2) {
-    console.log("\n→ Разные IP — sticky -session-{id} для этой зоны принимается.");
+    console.log("\n→ Один и тот же IP на sticky-аккаунтах (редко для разных session-id).");
   }
 }
