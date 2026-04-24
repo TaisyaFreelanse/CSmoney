@@ -1,12 +1,17 @@
 #!/usr/bin/env node
 /**
- * Сравнение egress IP по Bright Data для каждого id из STEAM_ACCOUNTS (sticky -session-{id}).
- * Запуск на VPS: cd steam-worker && node scripts/compare-brightdata-sticky-ips.mjs
- * Секреты в stdout не печатаются — только HTTP-заголовки и тело welcome.txt (обычно одна строка IP).
+ * Сравнение egress IP через Bright Data:
+ * 1) «Как в .env» — PROXY_USERNAME без изменений (эквивалент вашего ручного curl).
+ * 2) Как в steam-worker при липкой сессии: -session-{id} (если в .env ещё нет суффикса -session-).
+ *
+ * 407 на шаге 2 при успешном шаге 1 → зона/учётка не принимает -session-{id};
+ *   см. PROXY_STICKY_SESSION=0 или username с плейсхолдером {accountId} в .env.example.
+ *
+ * Запуск: cd steam-worker && npm run brightdata:compare-sticky-ips
  */
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,6 +36,43 @@ function loadEnvFile(p) {
     o[k] = v;
   }
   return o;
+}
+
+function curlProxy({ host, port, proxyUser, password, url }) {
+  const r = spawnSync(
+    "curl",
+    [
+      "-sS",
+      "-i",
+      "--max-time",
+      "30",
+      "--proxy",
+      `http://${host}:${port}`,
+      "--proxy-user",
+      `${proxyUser}:${password}`,
+      url,
+    ],
+    { encoding: "utf8", maxBuffer: 512 * 1024 },
+  );
+  if (r.error) {
+    return { ok: false, text: `spawn_error: ${r.error.message}` };
+  }
+  if (r.status !== 0) {
+    const err = (r.stderr || "").trim();
+    const hint = err.includes("407") ? " (proxy auth rejected — check username format / zone)" : "";
+    return { ok: false, text: `curl_exit_${r.status}${hint}` };
+  }
+  return { ok: true, text: r.stdout || "" };
+}
+
+function parseResponse(text) {
+  const norm = text.replace(/\r\n/g, "\n");
+  const idx = norm.indexOf("\n\n");
+  const head = idx >= 0 ? norm.slice(0, idx) : norm;
+  const body = idx >= 0 ? norm.slice(idx + 2).trim() : "";
+  const first = head.split("\n")[0] || "";
+  const ip = body.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
+  return { firstLine: first, head: head.split("\n").slice(0, 15).join("\n"), body: body.slice(0, 400), ip: ip ? ip[0] : null };
 }
 
 const env = loadEnvFile(path.join(root, ".env"));
@@ -60,49 +102,68 @@ if (!h || !port || !baseUser || !pw) {
   process.exit(1);
 }
 
-const results = [];
-for (const accId of accIds) {
-  const user =
-    /-session-[A-Za-z0-9_-]+$/.test(baseUser) ? baseUser : `${baseUser}-session-${accId}`;
-  let out = "";
-  try {
-    out = execFileSync(
-      "curl",
-      [
-        "-sS",
-        "-i",
-        "--max-time",
-        "30",
-        "--proxy",
-        `http://${h}:${port}`,
-        "--proxy-user",
-        `${user}:${pw}`,
-        url,
-      ],
-      { encoding: "utf8", maxBuffer: 512 * 1024 },
-    );
-  } catch (e) {
-    out = `curl_error: ${e instanceof Error ? e.message : String(e)}`;
-  }
-  const lines = out.replace(/\r\n/g, "\n").split("\n");
-  const statusLine = lines[0] || "";
-  const body = lines.slice(lines.indexOf("") + 1).join("\n").trim() || out.slice(-200);
-  results.push({ accId, statusLine, bodyPreview: body.slice(0, 200) });
-  console.log(`\n=== ${accId} (user ends with session for this id) ===`);
-  console.log(lines.slice(0, 20).join("\n"));
-  if (body && !body.includes("curl_error")) console.log("--- body (trim) ---\n", body.slice(0, 500));
+const stickyOff =
+  env.PROXY_STICKY_SESSION === "0" || env.PROXY_STICKY_SESSION === "false";
+
+console.log("URL:", url);
+console.log("PROXY_STICKY_SESSION off:", stickyOff);
+
+console.log("\n=== A) Baseline: PROXY_USERNAME exactly as in .env (no -session- appended) ===");
+const baseRes = curlProxy({ host: h, port, proxyUser: baseUser, password: pw, url });
+if (!baseRes.ok) {
+  console.log("FAILED:", baseRes.text);
+} else {
+  const p = parseResponse(baseRes.text);
+  console.log(p.head);
+  console.log("body:", p.body || "(empty)");
+  console.log("parsed IP:", p.ip ?? "(none)");
 }
 
-const ips = results.map((r) => {
-  const m = r.bodyPreview.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/);
-  return m ? m[0] : null;
-});
-console.log("\n=== Summary (parsed IPv4 from body if present) ===");
-for (let i = 0; i < results.length; i++) {
-  console.log(`${results[i].accId}: ${ips[i] ?? "(no ipv4 in first 200 chars)"}`);
+const hasSessionSuffix = /-session-[A-Za-z0-9_-]+$/.test(baseUser);
+
+if (hasSessionSuffix || stickyOff) {
+  console.log(
+    "\n=== B) Skipped per-account -session-{id} curl: .env username already ends with -session- OR PROXY_STICKY_SESSION=0 ===",
+  );
+  console.log("Worker uses username as configured; compare login IP vs worker IP in Bright Data dashboard.");
+  process.exit(0);
 }
-if (ips.length >= 2 && ips[0] && ips[1] && ips[0] !== ips[1]) {
-  console.log("\nNote: different IPs per account — sticky sessions work as expected.");
-} else if (ips.length >= 2 && ips[0] && ips[1] && ips[0] === ips[1]) {
-  console.log("\nNote: same IP for both accounts — check zone/session settings if you expected different egress.");
+
+const results = [];
+for (const accId of accIds) {
+  const user = `${baseUser}-session-${accId}`;
+  console.log(`\n=== B-${accId}) Puppeteer-style user: …-session-${accId} (password from .env) ===`);
+  const res = curlProxy({ host: h, port, proxyUser: user, password: pw, url });
+  if (!res.ok) {
+    console.log("FAILED:", res.text);
+    results.push({ accId, ip: null, fail: true });
+    continue;
+  }
+  const p = parseResponse(res.text);
+  console.log(p.head);
+  console.log("body:", p.body || "(empty)");
+  console.log("parsed IP:", p.ip ?? "(none)");
+  results.push({ accId, ip: p.ip, fail: false });
+}
+
+console.log("\n=== Summary ===");
+console.log("baseline (.env user):", baseRes.ok ? parseResponse(baseRes.text).ip ?? "(no ip)" : "failed");
+for (const r of results) {
+  console.log(`${r.accId} (-session-):`, r.fail ? "failed" : r.ip ?? "(no ip)");
+}
+
+if (baseRes.ok && results.some((r) => r.fail)) {
+  console.log(
+    "\n→ Baseline OK, but -session-{accountId} gets 407: Bright Data отклоняет формат логина с суффиксом сессии для этой зоны/продукта.",
+  );
+  console.log(
+    "  Варианты: PROXY_STICKY_SESSION=0 и отдельные учётки; или username с {accountId} в .env (см. puppeteerProxy.js).",
+  );
+} else if (baseRes.ok && results.every((r) => !r.fail)) {
+  const ips = results.map((r) => r.ip).filter(Boolean);
+  if (ips.length >= 2 && new Set(ips).size === 1) {
+    console.log("\n→ Один и тот же IP на обоих sticky — ожидайте различия только если зона выдаёт разные выходы по session-id.");
+  } else if (ips.length >= 2) {
+    console.log("\n→ Разные IP — sticky -session-{id} для этой зоны принимается.");
+  }
 }
