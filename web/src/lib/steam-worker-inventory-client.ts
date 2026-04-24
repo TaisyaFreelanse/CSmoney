@@ -143,7 +143,7 @@ export async function fetchSteamWorkerInventoryDirect(params: {
     180_000,
     Math.max(30_000, parseInt(process.env.STEAM_INVENTORY_WORKER_HTTP_TIMEOUT_MS ?? "150000", 10) || 150_000),
   );
-  const maxRetries = Math.min(6, Math.max(0, parseInt(process.env.STEAM_INVENTORY_WORKER_HTTP_RETRIES ?? "2", 10) || 2));
+  const maxRetries = Math.min(8, Math.max(0, parseInt(process.env.STEAM_INVENTORY_WORKER_HTTP_RETRIES ?? "4", 10) || 4));
 
   const url = new URL(`${base}/inventory`);
   url.searchParams.set("tradeUrl", params.tradeUrl.trim());

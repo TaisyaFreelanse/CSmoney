@@ -362,39 +362,54 @@ export async function fetchTradeInventory(opts) {
       jsonBodyTasks.push(task);
     });
 
-    const gotoMs = Math.min(35_000, Math.max(5000, timeLeft() - 500));
-    try {
-      await page.goto(tradeUrlCanonical, { waitUntil: "domcontentloaded", timeout: gotoMs });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logJson("steam_worker_trade_goto_failed", { accountId, message: msg });
-      return {
-        tradeStats: snapTradeStats(),
-        ok: false,
-        error: "puppeteer_error",
-        detail: msg,
-        items: [],
-        sessionInvalid: false,
-        timedOut: false,
-      };
-    }
-    lastInventoryJsonAt = Date.now();
-    const urlAfterTradeNav = page.url();
-    if (urlAfterTradeNav.startsWith("chrome-error://")) {
-      logJson("steam_worker_navigation_chrome_error", {
+    const gotoMs = Math.min(45_000, Math.max(5000, timeLeft() - 500));
+    const gotoRetries = Math.min(8, Math.max(1, Number(process.env.STEAM_WORKER_TRADE_GOTO_RETRIES) || 5));
+    let urlAfterTradeNav = "";
+    for (let attempt = 1; attempt <= gotoRetries; attempt++) {
+      const waitUntil = attempt >= 3 ? "load" : "domcontentloaded";
+      try {
+        await page.goto(tradeUrlCanonical, { waitUntil, timeout: gotoMs });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        logJson("steam_worker_trade_goto_failed", { accountId, attempt, message: msg });
+        return {
+          tradeStats: snapTradeStats(),
+          ok: false,
+          error: "puppeteer_error",
+          detail: msg,
+          items: [],
+          sessionInvalid: false,
+          timedOut: false,
+        };
+      }
+      lastInventoryJsonAt = Date.now();
+      urlAfterTradeNav = page.url();
+      if (!urlAfterTradeNav.startsWith("chrome-error://")) break;
+      logJson("steam_worker_navigation_chrome_error_retry", {
         accountId,
+        attempt,
+        maxAttempts: gotoRetries,
         pageUrl: urlAfterTradeNav,
         hint: "proxy_tunnel_tls_or_blocked",
       });
-      return {
-        tradeStats: snapTradeStats(),
-        ok: false,
-        error: "proxy_error",
-        detail: "chrome_error_page_after_trade_goto",
-        items: [],
-        sessionInvalid: false,
-        timedOut: false,
-      };
+      if (attempt >= gotoRetries) {
+        logJson("steam_worker_navigation_chrome_error", {
+          accountId,
+          pageUrl: urlAfterTradeNav,
+          hint: "proxy_tunnel_tls_or_blocked",
+        });
+        return {
+          tradeStats: snapTradeStats(),
+          ok: false,
+          error: "proxy_error",
+          detail: "chrome_error_page_after_trade_goto",
+          items: [],
+          sessionInvalid: false,
+          timedOut: false,
+        };
+      }
+      await sleep(Math.min(15_000, 2500 * attempt));
+      await page.goto("about:blank", { waitUntil: "commit", timeout: 10_000 }).catch(() => {});
     }
     await page
       .waitForFunction(() => document.readyState === "complete", { timeout: 15_000, polling: 250 })

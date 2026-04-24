@@ -116,6 +116,12 @@ services:
         sync: false
       - key: CRON_SECRET
         sync: false
+      # Wait before first HTTP (ms) so web cold start finishes — strongly reduces Cloudflare/HTML 502 noise on cron.
+      - key: SYNC_PRICES_START_DELAY_MS
+        value: "20000"
+      # Retries: 502/503/504, HTML soft-502 body, network errors (default 6). See scripts/sync-prices.mjs.
+      - key: SYNC_PRICES_MAX_ATTEMPTS
+        value: "8"
       # Not read by sync-prices.mjs today; included for parity / future jobs.
       - key: DATABASE_URL
         fromDatabase:

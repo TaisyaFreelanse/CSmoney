@@ -216,8 +216,14 @@ export function createInventoryHandler(pool, taskQueue, cache) {
         logInventoryEvent("account_acquired", { jobId, accountId: account.id });
         let outcome = await executeWithAccount(account, canonical, partnerSteamId64);
 
+        // Second account: timeouts, flaky proxy (chrome-error://), or transient Puppeteer errors.
         const shouldRetryOther =
-          !outcome.ok && outcome.timedOut && !outcome.sessionInvalid && outcome.error !== "session_invalid";
+          !outcome.ok &&
+          !outcome.sessionInvalid &&
+          outcome.error !== "session_invalid" &&
+          (outcome.timedOut ||
+            outcome.error === "proxy_error" ||
+            outcome.error === "puppeteer_error");
 
         if (shouldRetryOther) {
           logJson("steam_worker_retry_other_account", { jobId, failedAccountId: account.id });

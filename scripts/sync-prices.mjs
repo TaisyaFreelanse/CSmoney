@@ -16,32 +16,75 @@ if (!APP_URL || !CRON_SECRET) {
 
 const base = APP_URL.replace(/\/$/, "");
 
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+const startDelayMs = Math.max(0, parseInt(process.env.SYNC_PRICES_START_DELAY_MS ?? "0", 10) || 0);
+if (startDelayMs > 0) {
+  console.log(`[sync-prices] SYNC_PRICES_START_DELAY_MS=${startDelayMs} (wait before first request, e.g. after deploy)`);
+  await sleep(startDelayMs);
+}
+
 /** @param {string} url */
 async function fetchWithLongDeadline(url) {
   const ac = typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(600_000) : undefined;
   return fetch(url, ac ? { signal: ac } : {});
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+/** Render/Cloudflare sometimes return 200 with an HTML error page body. */
+function looksLikeHtmlGatewayError(text) {
+  const t = String(text ?? "").trim();
+  if (!t || t[0] !== "<") return false;
+  const head = t.slice(0, 12_000).toLowerCase();
+  return (
+    head.includes("<title>502</title>") ||
+    head.includes("<title>503</title>") ||
+    head.includes("<title>504</title>") ||
+    head.includes("bad gateway") ||
+    head.includes("service unavailable") ||
+    head.includes("error code 502") ||
+    head.includes("error code 503") ||
+    (head.includes("cloudflare") && head.includes("error"))
+  );
 }
 
-/** Retry Cloudflare / origin 502–504 (cold start, deploy, overload). */
+/** Retry Cloudflare / origin 502–504 (cold start, deploy, overload), HTML soft-502, and network errors. */
 async function fetchOkWithRetries(label, url, { acceptStatuses = [] } = {}) {
-  const maxAttempts = Math.min(8, Math.max(1, parseInt(process.env.SYNC_PRICES_MAX_ATTEMPTS ?? "5", 10) || 5));
+  const maxAttempts = Math.min(10, Math.max(1, parseInt(process.env.SYNC_PRICES_MAX_ATTEMPTS ?? "6", 10) || 6));
   /** @type {Response | null} */
   let lastRes = null;
   let lastBody = "";
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const res = await fetchWithLongDeadline(url);
+    /** @type {Response} */
+    let res;
+    try {
+      res = await fetchWithLongDeadline(url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (attempt < maxAttempts) {
+        const wait = Math.min(120_000, 5000 * 2 ** (attempt - 1));
+        console.warn(`[${label}] fetch error (${msg}), retry ${attempt}/${maxAttempts} in ${wait}ms`);
+        await sleep(wait);
+        continue;
+      }
+      throw e;
+    }
     lastRes = res;
     lastBody = await res.text();
-    if (res.ok) return { res, data: lastBody };
-    if (acceptStatuses.includes(res.status)) return { res, data: lastBody };
-    const retryable = res.status === 502 || res.status === 503 || res.status === 504 || res.status === 429;
+    const softGateway = res.ok && looksLikeHtmlGatewayError(lastBody);
+    if (res.ok && !softGateway) return { res, data: lastBody };
+    if (!res.ok && acceptStatuses.includes(res.status)) return { res, data: lastBody };
+    const retryable =
+      softGateway ||
+      res.status === 502 ||
+      res.status === 503 ||
+      res.status === 504 ||
+      res.status === 429;
     if (retryable && attempt < maxAttempts) {
       const wait = Math.min(120_000, 5000 * 2 ** (attempt - 1));
-      console.warn(`[${label}] HTTP ${res.status}, retry ${attempt}/${maxAttempts} in ${wait}ms`);
+      const why = softGateway ? "HTML gateway/body" : `HTTP ${res.status}`;
+      console.warn(`[${label}] ${why}, retry ${attempt}/${maxAttempts} in ${wait}ms`);
       await sleep(wait);
       continue;
     }
