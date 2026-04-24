@@ -38,6 +38,11 @@ function loadEnvFile(p) {
   return o;
 }
 
+function redactSecrets(s, password) {
+  if (!password || !s) return s;
+  return s.split(password).join("***");
+}
+
 function curlProxy({ host, port, proxyUser, password, url }) {
   const r = spawnSync(
     "curl",
@@ -55,14 +60,21 @@ function curlProxy({ host, port, proxyUser, password, url }) {
     { encoding: "utf8", maxBuffer: 512 * 1024 },
   );
   if (r.error) {
-    return { ok: false, text: `spawn_error: ${r.error.message}` };
+    return { ok: false, text: `spawn_error: ${r.error.message}`, stderr: "" };
   }
   if (r.status !== 0) {
-    const err = (r.stderr || "").trim();
-    const hint = err.includes("407") ? " (proxy auth rejected — check username format / zone)" : "";
-    return { ok: false, text: `curl_exit_${r.status}${hint}` };
+    const err = redactSecrets((r.stderr || "").trim(), password);
+    let hint = "";
+    if (err.includes("407")) hint = " (HTTP 407: proxy auth rejected)";
+    else if (r.status === 56) hint = " (exit 56: often TLS/tunnel or proxy closed — see stderr below)";
+    return {
+      ok: false,
+      text: `curl_exit_${r.status}${hint}`,
+      stderr: err.slice(0, 500),
+      stdoutHead: redactSecrets((r.stdout || "").slice(0, 300), password),
+    };
   }
-  return { ok: true, text: r.stdout || "" };
+  return { ok: true, text: r.stdout || "", stderr: "" };
 }
 
 function parseResponse(text) {
@@ -112,6 +124,8 @@ console.log("\n=== A) Baseline: PROXY_USERNAME exactly as in .env (no -session- 
 const baseRes = curlProxy({ host: h, port, proxyUser: baseUser, password: pw, url });
 if (!baseRes.ok) {
   console.log("FAILED:", baseRes.text);
+  if (baseRes.stderr) console.log("stderr:", baseRes.stderr);
+  if (baseRes.stdoutHead) console.log("stdout_head:", baseRes.stdoutHead);
 } else {
   const p = parseResponse(baseRes.text);
   console.log(p.head);
@@ -136,6 +150,8 @@ for (const accId of accIds) {
   const res = curlProxy({ host: h, port, proxyUser: user, password: pw, url });
   if (!res.ok) {
     console.log("FAILED:", res.text);
+    if (res.stderr) console.log("stderr:", res.stderr);
+    if (res.stdoutHead) console.log("stdout_head:", res.stdoutHead);
     results.push({ accId, ip: null, fail: true });
     continue;
   }
