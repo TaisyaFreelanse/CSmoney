@@ -64,14 +64,17 @@ function curlProxy({ host, port, proxyUser, password, url }) {
   }
   if (r.status !== 0) {
     const err = redactSecrets((r.stderr || "").trim(), password);
+    const outHead = redactSecrets((r.stdout || "").slice(0, 800), password);
     let hint = "";
-    if (err.includes("407")) hint = " (HTTP 407: proxy auth rejected)";
-    else if (r.status === 56) hint = " (exit 56: often TLS/tunnel or proxy closed — see stderr below)";
+    if (outHead.includes("Account is suspended") || outHead.includes("client_10020")) {
+      hint = " (Bright Data: account suspended / billing — not an application bug)";
+    } else if (err.includes("407")) hint = " (HTTP 407: proxy auth rejected — user/password/zone)";
+    else if (r.status === 56) hint = " (exit 56: see stderr / stdout for 407 or TLS)";
     return {
       ok: false,
       text: `curl_exit_${r.status}${hint}`,
       stderr: err.slice(0, 500),
-      stdoutHead: redactSecrets((r.stdout || "").slice(0, 300), password),
+      stdoutHead: outHead.slice(0, 300),
     };
   }
   return { ok: true, text: r.stdout || "", stderr: "" };
