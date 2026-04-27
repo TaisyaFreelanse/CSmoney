@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Steam login helper for Linux VPS / VNC / SSH.
+# Всегда указывайте аккаунт: bash scripts/login-vps.sh acc1  (у acc1 и acc2 разные каталоги профиля в STEAM_ACCOUNTS).
 # Headful Chrome needs a real X11 session: DISPLAY + cookie (XAUTHORITY) + often dbus.
 # If checks fail → headless (or copy profiles/accN from your PC after logging in locally).
 set -euo pipefail

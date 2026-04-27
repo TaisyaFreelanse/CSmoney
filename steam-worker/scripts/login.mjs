@@ -15,7 +15,12 @@ import {
 
 const arg = process.argv[2]?.trim();
 if (!arg) {
-  console.error("Usage: npm run login -- <accountId|path-to-profile>");
+  console.error(
+    "Usage: npm run login -- <accountId|path-to-profile>\n" +
+      "Пример для двух ботов: npm run login -- acc1   и отдельно   npm run login -- acc2\n" +
+      "У каждого id в STEAM_ACCOUNTS должен быть свой userDataDir — иначе в одном профиле окажется последний залогиненный Steam.\n" +
+      "На VPS с VNC: npm run login:vps -- acc1",
+  );
   process.exit(1);
 }
 
