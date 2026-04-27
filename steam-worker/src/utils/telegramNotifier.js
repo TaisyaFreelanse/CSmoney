@@ -9,7 +9,7 @@ const COOLDOWN_MS = Math.min(
   Math.max(60_000, Number(process.env.TELEGRAM_NOTIFY_COOLDOWN_MS) || 480_000),
 );
 const PROXY_STREAK = Math.min(20, Math.max(1, Number(process.env.TELEGRAM_PROXY_ERROR_STREAK) || 3));
-const PUPPETEER_STREAK = Math.min(20, Math.max(1, Number(process.env.TELEGRAM_PUPPETEER_ERROR_STREAK) || 2));
+const PUPPETEER_STREAK = Math.min(30, Math.max(1, Number(process.env.TELEGRAM_PUPPETEER_ERROR_STREAK) || 4));
 
 /** @type {Map<string, number>} */
 const lastNotifyAt = new Map();
@@ -73,9 +73,6 @@ export async function sendTelegram(text) {
 
 /**
  * @param {{ accountId: string; error: string; detail?: string | null }} p
- */
-/**
- * @param {{ accountId: string; error: string; detail?: string | null }} p
  * @returns {Promise<boolean>} true если сообщение ушло в Telegram
  */
 export async function notifySteamAccountIssue(p) {
@@ -105,7 +102,13 @@ export async function notifySteamAccountIssue(p) {
 /**
  * Сброс streak при успешном fetch; при proxy/puppeteer — счётчик и алерт после N подряд.
  * @param {string} accountId
- * @param {{ ok: boolean; error?: string | null; sessionInvalid?: boolean }} outcome
+ * @param {{
+ *   ok: boolean;
+ *   error?: string | null;
+ *   sessionInvalid?: boolean;
+ *   detail?: string | null;
+ *   apiPrefetchError?: string | null;
+ * }} outcome
  */
 export function recordTradeFetchOutcome(accountId, outcome) {
   const id = String(accountId ?? "").trim();
@@ -134,10 +137,13 @@ export function recordTradeFetchOutcome(accountId, outcome) {
         proxyStreak.set(id, 0);
         return;
       }
+      const extra = [outcome.detail && `last: ${outcome.detail}`, outcome.apiPrefetchError && `api: ${outcome.apiPrefetchError}`]
+        .filter(Boolean)
+        .join(" | ");
       void notifySteamAccountIssue({
         accountId: id,
         error: "proxy_error",
-        detail: `repeated ${n} times in a row (threshold ${PROXY_STREAK})`,
+        detail: [`streak ${n}/${PROXY_STREAK}`, extra || null].filter(Boolean).join("\n"),
       }).then((sent) => {
         if (sent) proxyStreak.set(id, 0);
         else proxyStreak.set(id, Math.max(1, PROXY_STREAK - 1));
@@ -156,10 +162,13 @@ export function recordTradeFetchOutcome(accountId, outcome) {
         puppeteerStreak.set(id, 0);
         return;
       }
+      const lines = [`streak ${n}/${PUPPETEER_STREAK} (often Steam/proxy/tunnel, not a broken profile)`];
+      if (outcome.detail) lines.push(`chromium: ${outcome.detail}`);
+      if (outcome.apiPrefetchError) lines.push(`inventory_api: ${outcome.apiPrefetchError}`);
       void notifySteamAccountIssue({
         accountId: id,
         error: "puppeteer_error",
-        detail: `repeated ${n} times in a row (threshold ${PUPPETEER_STREAK})`,
+        detail: lines.join("\n"),
       }).then((sent) => {
         if (sent) puppeteerStreak.set(id, 0);
         else puppeteerStreak.set(id, Math.max(1, PUPPETEER_STREAK - 1));

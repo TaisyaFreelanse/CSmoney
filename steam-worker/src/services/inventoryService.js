@@ -79,6 +79,8 @@ export function createInventoryHandler(pool, taskQueue, cache) {
       ok: !!r.ok,
       error: r.error ?? null,
       sessionInvalid: !!r.sessionInvalid,
+      detail: r.detail ?? null,
+      apiPrefetchError: apiPull.ok ? null : (apiPull.error ?? null),
     });
     const apiMetaForResponse = apiPull.ok
       ? { attempted: true, ok: true, ...apiPull.meta }
